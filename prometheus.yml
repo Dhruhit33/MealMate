@@ -57,11 +57,3 @@ scrape_configs:
       - targets: ['notification-service:8086']
         labels:
           application: 'notification-service'
-
-  # AI Assistant Service
-  - job_name: 'ai-assistant-service'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['ai-assistant-service:8087']
-        labels:
-          application: 'ai-assistant-service'

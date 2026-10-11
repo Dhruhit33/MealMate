@@ -347,36 +347,6 @@ services:
     networks:
       - foodrush-net
 
-  ai-assistant-service:
-    build:
-      context: ./Backened/ai-assistant-service
-      dockerfile: Dockerfile
-    container_name: ai-assistant-service
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      config-server:
-        condition: service_healthy
-      discovery-server:
-        condition: service_healthy
-    environment:
-      SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
-      CONFIG_SERVER_URL: http://config-server:8888
-      EUREKA_URL: http://discovery-server:8761/eureka/
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BOOTSTRAP: kafka:29092
-      JWT_SECRET: ${JWT_SECRET:-default-secret-key-for-jwt-signing-must-be-at-least-256-bits-long}
-      GATEWAY_URL: http://api-gateway:8080
-      # ── Gemini (free API key from AI Studio) ──
-      GROQ_API_KEY: ${GROK_API_KEY}
-      GROQ_MODEL: ${GROK_MODEL:-llama-3.3-70b-versatile}
-    networks:
-      - foodrush-net
-
   api-gateway:
     build:
       context: ./Backened/api-gateway

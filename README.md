@@ -59,7 +59,6 @@ graph TD
         GW -->|REST + WSS| OS(Order Service :8083)
         GW -->|REST + WSS| DL(Delivery Service :8084)
         GW -->|REST| PS(Payment Service :8085)
-        GW -->|REST| AI(AI Assistant Service :8087)
         NS(Notification Service :8086)
     end
 
@@ -106,8 +105,7 @@ graph TD
 | **delivery-service** | 8084 | Driver management, GPS tracking, delivery lifecycle |
 | **payment-service** | 8085 | Wallet, fund locking, SAGA payment processing |
 | **notification-service** | 8086 | Kafka consumer — sends emails via SMTP on key events |
-| **ai-assistant-service** | 8087 | Conversational agent using Gemini with function calling |
-| **prometheus** | 9090 | Scrapes `/actuator/prometheus` from all 8 services every 5s |
+| **prometheus** | 9090 | Scrapes `/actuator/prometheus` from all 7 services every 5s |
 | **grafana** | 3001 | Dashboards — JVM heap, CPU, uptime, HTTP metrics per service |
 
 ---
@@ -293,10 +291,9 @@ graph LR
         E[delivery-service :8084]
         F[payment-service :8085]
         G[notification-service :8086]
-        H[ai-assistant-service :8087]
     end
 
-    A & B & C & D & E & F & G & H -->|/actuator/prometheus\nevery 5s| P(Prometheus :9090)
+    A & B & C & D & E & F & G -->|/actuator/prometheus\nevery 5s| P(Prometheus :9090)
     P -->|PromQL queries| GR(Grafana :3001)
     GR -->|Spring Boot 2.1\nSystem Monitor Dashboard| DEV[Developer]
 ```
@@ -552,7 +549,6 @@ cd Backened/order-service       && ./gradlew bootRun
 cd Backened/delivery-service    && ./gradlew bootRun
 cd Backened/payment-service     && ./gradlew bootRun
 cd Backened/notification-service && ./gradlew bootRun
-cd Backened/ai-assistant-service && ./gradlew bootRun
 
 # Terminal 10 — Gateway last
 cd Backened/api-gateway && ./gradlew bootRun
@@ -584,8 +580,7 @@ foodRush/
 │   ├── order-service/
 │   ├── payment-service/
 │   ├── restaurant-service/
-│   ├── user-service/
-│   └── ai-assistant-service/
+│   └── user-service/
 ├── frontend/                                     ← React 18 + Vite
 ├── grafana/
 │   └── provisioning/

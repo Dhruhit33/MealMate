@@ -1,7 +1,6 @@
 import { Outlet } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
-import ChatWidget from "../components/ChatWidget";
 
 export default function CustomerLayout() {
   return (
@@ -11,7 +10,6 @@ export default function CustomerLayout() {
         <Outlet />
       </main>
       <Footer />
-      <ChatWidget />
       <style>{`@media (max-width: 768px) { main { padding: 16px 14px !important; } }`}</style>
     </div>
   );

@@ -87,13 +87,6 @@ spring:
           filters:
             - RewritePath=/api/ws/(?<segment>.*), /ws/$\{segment}
 
-        # ─── AI ASSISTANT SERVICE ──────────────────────
-        - id: ai-assistant-service
-          uri: lb://AI-ASSISTANT-SERVICE
-          predicates:
-            - Path=/api/v1/ai/**
-          filters:
-            - AuthenticationFilter
 
 
 eureka:
