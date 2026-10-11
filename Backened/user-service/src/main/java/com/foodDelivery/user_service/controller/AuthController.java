@@ -26,8 +26,12 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<Map<String, String>> register(@RequestBody RegisterRequest request){
-        String message = authService.initiateRegistration(request);
-        return ResponseEntity.ok(Collections.singletonMap("message", message));
+        String otp = authService.initiateRegistration(request);
+        Map<String, String> response = Map.of(
+            "message", "Verification code generated! Your OTP is: " + otp,
+            "otp", otp
+        );
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/verify-otp")
@@ -46,7 +50,11 @@ public class AuthController {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("message", "Email is required"));
         }
-        otpService.generateAndSendOtp(email);
-        return ResponseEntity.ok(Collections.singletonMap("message", "OTP resent to " + email));
+        String otp = otpService.generateAndSendOtp(email);
+        Map<String, String> response = Map.of(
+            "message", "New verification code: " + otp,
+            "otp", otp
+        );
+        return ResponseEntity.ok(response);
     }
 }

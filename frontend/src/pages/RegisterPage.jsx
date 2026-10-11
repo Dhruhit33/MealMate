@@ -41,8 +41,8 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await register(form);
-      toast.success(res.message || "Account created! Verify your email.");
-      navigate("/verify-otp", { state: { email: form.email } });
+      toast.success(res.message || "Account created! Verify your code.");
+      navigate("/verify-otp", { state: { email: form.email, otp: res?.otp } });
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error || "Registration failed. Please check your connection.";
       toast.error(msg);

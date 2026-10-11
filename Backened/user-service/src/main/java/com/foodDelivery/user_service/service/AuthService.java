@@ -41,11 +41,9 @@ public class AuthService {
                 passwordEncoder.encode(request.getPassword()),
                 request.getRole()
         );
-        redisTemplate.opsForValue().set(key, value, 10, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set(key, value, 30, TimeUnit.MINUTES);
 
-        otpService.generateAndSendOtp(request.getEmail());
-
-        return "OTP sent to " + request.getEmail();
+        return otpService.generateAndSendOtp(request.getEmail());
     }
 
     public AuthResponse verifyOtpAndRegister(VerifyOtpRequest request) {

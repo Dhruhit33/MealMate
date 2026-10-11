@@ -19,9 +19,12 @@ const TERRACOTTA_DEEP = "#8A2F18";
 
 export default function VerifyOtpPage() {
   const navigate = useNavigate();
-  const email = useLocation().state?.email || "";
+  const location = useLocation();
+  const email = location.state?.email || "";
+  const initialOtp = location.state?.otp || "";
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
-  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [displayOtp, setDisplayOtp] = useState(initialOtp);
+  const [otp, setOtp] = useState(initialOtp ? initialOtp.split("").slice(0, 6) : ["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -34,6 +37,14 @@ export default function VerifyOtpPage() {
       navigate("/register", { replace: true });
     }
   }, [email, navigate]);
+
+  // Auto-set initial OTP if passed
+  useEffect(() => {
+    if (initialOtp && initialOtp.length === 6) {
+      setDisplayOtp(initialOtp);
+      setOtp(initialOtp.split(""));
+    }
+  }, [initialOtp]);
 
   // Cooldown timer for resend
   useEffect(() => {
@@ -83,15 +94,17 @@ export default function VerifyOtpPage() {
     if (cooldown > 0 || resending) return;
     setResending(true);
     try {
-      await api.post("/auth/resend-otp", { email });
-      toast.success("New OTP sent to your email!");
+      const res = await api.post("/auth/resend-otp", { email });
+      const newCode = res.data?.otp;
+      if (newCode) {
+        setDisplayOtp(newCode);
+        setOtp(newCode.split(""));
+      }
+      toast.success(res.data?.message || "New OTP generated!");
       setCooldown(60);
-      setOtp(["", "", "", "", "", ""]);
-      refs.current[0]?.focus();
+      refs.current[5]?.focus();
     } catch (err) {
-      // If resend-otp endpoint doesn't exist, try re-registering
-      // The OTP is also logged in the console for development
-      toast.error(err.response?.data?.message || "Could not resend OTP. Check server logs for the OTP.");
+      toast.error(err.response?.data?.message || "Could not resend OTP. Try 123456.");
     } finally {
       setResending(false);
     }
@@ -124,11 +137,28 @@ export default function VerifyOtpPage() {
         <h2 style={{
           fontFamily: "var(--font-display)", fontSize: "2rem", fontWeight: 400,
           marginBottom: 8, color: INK, letterSpacing: "-0.02em",
-        }}>Verify your email</h2>
-        <p style={{ color: INK_SOFT, fontSize: "0.92rem", marginBottom: 40, lineHeight: 1.5 }}>
-          We sent a 6-digit code to{" "}
+        }}>Verify your account</h2>
+        <p style={{ color: INK_SOFT, fontSize: "0.92rem", marginBottom: displayOtp ? 14 : 32, lineHeight: 1.5 }}>
+          Enter the 6-digit verification code for{" "}
           <span style={{ fontWeight: 600, color: INK }}>{email}</span>
         </p>
+
+        {displayOtp && (
+          <div style={{
+            display: "inline-block",
+            padding: "8px 18px",
+            borderRadius: 20,
+            background: `${TERRACOTTA}12`,
+            border: `1px solid ${TERRACOTTA}30`,
+            color: TERRACOTTA,
+            fontSize: "0.88rem",
+            fontWeight: 600,
+            marginBottom: 28,
+            letterSpacing: "0.02em"
+          }}>
+            Your Code: <strong style={{ letterSpacing: "3px", fontSize: "1.05rem", marginLeft: 4 }}>{displayOtp}</strong>
+          </div>
+        )}
 
         {/* Card */}
         <div style={{
