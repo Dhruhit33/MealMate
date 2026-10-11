@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><title>Order Confirmed</title></head>
+<body style="font-family: Arial, sans-serif; background:#f4f4f4; padding:20px; margin:0;">
+<div style="max-width:600px; margin:auto; background:#ffffff; padding:30px; border-radius:8px;">
+    <h2 style="color:#e23744; margin-top:0;">Order Confirmed!</h2>
+    <p>Hi <span th:text="${userName}">Customer</span>,</p>
+    <p>Thanks for your order from <strong th:text="${restaurantName}">Restaurant</strong>.</p>
+    <table style="width:100%; border-collapse:collapse; margin:20px 0;">
+        <tr><td style="padding:8px; border-bottom:1px solid #eee;"><strong>Order ID</strong></td>
+            <td style="padding:8px; border-bottom:1px solid #eee;" th:text="${orderId}"></td></tr>
+        <tr><td style="padding:8px; border-bottom:1px solid #eee;"><strong>Total</strong></td>
+            <td style="padding:8px; border-bottom:1px solid #eee;">&#8377;<span th:text="${totalAmount}"></span></td></tr>
+    </table>
+    <p>We'll notify you as your order progresses. Enjoy your meal!</p>
+    <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
+    <p style="font-size:12px; color:#888;">FoodDelivery Platform</p>
+</div>
+</body>
+</html>

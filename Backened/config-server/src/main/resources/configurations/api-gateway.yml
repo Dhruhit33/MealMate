@@ -1,0 +1,125 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      routes:
+        # ─── USER SERVICE ──────────────────────────────
+        - id: user-service-auth
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/api/v1/auth/**
+
+        - id: user-service-users
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - AuthenticationFilter
+
+        # ─── RESTAURANT SERVICE ────────────────────────
+        - id: restaurant-service
+          uri: lb://RESTAURANT-SERVICE
+          predicates:
+            - Path=/api/v1/restaurants/**
+          filters:
+            - AuthenticationFilter
+
+        # ─── ORDER SERVICE ─────────────────────────────
+        - id: order-service-orders
+          uri: lb://ORDER-SERVICE
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            - AuthenticationFilter
+
+        - id: order-service-cart
+          uri: lb://ORDER-SERVICE
+          predicates:
+            - Path=/api/v1/cart/**
+          filters:
+            - AuthenticationFilter
+
+        # ─── PAYMENT SERVICE ───────────────────────────
+        - id: payment-service-transactions
+          uri: lb://PAYMENT-SERVICE
+          predicates:
+            - Path=/api/v1/transactions/**
+          filters:
+            - AuthenticationFilter
+
+        - id: payment-service-wallet
+          uri: lb://PAYMENT-SERVICE
+          predicates:
+            - Path=/api/v1/wallet/**
+          filters:
+            - AuthenticationFilter
+
+        # ─── DELIVERY SERVICE ──────────────────────────
+        - id: delivery-service-delivery
+          uri: lb://DELIVERY-SERVICE
+          predicates:
+            - Path=/api/v1/delivery/**
+          filters:
+            - AuthenticationFilter
+
+        - id: delivery-service-driver
+          uri: lb://DELIVERY-SERVICE
+          predicates:
+            - Path=/api/v1/driver/**
+          filters:
+            - AuthenticationFilter
+
+        # ─── WEBSOCKET ─────────────────────────────────
+        - id: websocket-route
+          uri: lb://DELIVERY-SERVICE
+          predicates:
+            - Path=/api/ws/**
+          filters:
+            - RewritePath=/api/ws/(?<segment>.*), /ws/$\{segment}
+
+        # ─── AI ASSISTANT SERVICE ──────────────────────
+        - id: ai-assistant-service
+          uri: lb://AI-ASSISTANT-SERVICE
+          predicates:
+            - Path=/api/v1/ai/**
+          filters:
+            - AuthenticationFilter
+
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+jwt:
+  secret: ${JWT_SECRET:default-secret-key-for-jwt-signing-must-be-at-least-256-bits-long}
+
+# ─── METRICS & MONITORING ──────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,gateway,prometheus"
+  endpoint:
+    prometheus:
+      enabled: true
+  health:
+    show-details: always
+  metrics:
+    tags:
+      application: api-gateway
+    export:
+      prometheus:
+        enabled: true

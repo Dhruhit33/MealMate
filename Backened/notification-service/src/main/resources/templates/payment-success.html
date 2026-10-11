@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><title>Payment Successful</title></head>
+<body style="font-family: Arial, sans-serif; background:#f4f4f4; padding:20px; margin:0;">
+<div style="max-width:600px; margin:auto; background:#ffffff; padding:30px; border-radius:8px;">
+    <h2 style="color:#28a745; margin-top:0;">Payment Successful</h2>
+    <p>Hi <span th:text="${userName}">Customer</span>,</p>
+    <p>We've received your payment of <strong>&#8377;<span th:text="${totalAmount}"></span></strong>
+        for order <strong>#<span th:text="${orderId}"></span></strong>.</p>
+    <p>Thank you!</p>
+    <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
+    <p style="font-size:12px; color:#888;">FoodDelivery Platform</p>
+</div>
+</body>
+</html>
+

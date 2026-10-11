@@ -1,0 +1,7 @@
+# Tell GitHub to ignore Gradle wrapper files in language stats
+*.jar linguist-vendored
+*.bat linguist-vendored
+gradlew linguist-vendored
+**/gradle/** linguist-vendored
+**/.gradle/** linguist-vendored
+*.gradle linguist-generated

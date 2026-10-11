@@ -1,0 +1,61 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/order_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.type.mapping: orderPlaced:com.foodDelivery.order_service.dto.OrderPlacedEvent,orderAccepted:com.foodDelivery.order_service.dto.OrderAcceptedEvent,orderCancelled:com.foodDelivery.order_service.dto.OrderCancelledEvent,driverAssigned:com.foodDelivery.order_service.dto.DriverAssignedEvent,deliveryPickedUp:com.foodDelivery.order_service.dto.DeliveryPickedUpEvent,deliveryCompleted:com.foodDelivery.order_service.dto.DeliveryCompletedEvent
+    consumer:
+      group-id: order-service-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.type.mapping: orderPlaced:com.foodDelivery.order_service.dto.OrderPlacedEvent,orderAccepted:com.foodDelivery.order_service.dto.OrderAcceptedEvent,orderCancelled:com.foodDelivery.order_service.dto.OrderCancelledEvent,driverAssigned:com.foodDelivery.order_service.dto.DriverAssignedEvent,deliveryPickedUp:com.foodDelivery.order_service.dto.DeliveryPickedUpEvent,deliveryCompleted:com.foodDelivery.order_service.dto.DeliveryCompletedEvent
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+
+jwt:
+  secret: ${JWT_SECRET:default-secret-key-for-jwt-signing-must-be-at-least-256-bits-long}
+  expiration-ms: ${JWT_EXPIRATION:86400000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus"
+  endpoint:
+    prometheus:
+      enabled: true
+  health:
+    show-details: always
+  metrics:
+    tags:
+      application: order-service 
+    export:
+      prometheus:
+        enabled: true
