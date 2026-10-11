@@ -6,9 +6,10 @@
 .idea/
 *.iml
 
-# ─── Gradle build files ────────────────────
+# ─── Gradle & Maven build files ────────────
 .gradle/
 build/
+target/
 !gradle/wrapper/gradle-wrapper.jar
 
 # ─── OS files ───────────────────────────────
