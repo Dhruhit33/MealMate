@@ -3,3 +3,7 @@ spring:
     name: delivery-service
   config:
     import: optional:configserver:http://localhost:8888
+
+eureka:
+  instance:
+    prefer-ip-address: true
