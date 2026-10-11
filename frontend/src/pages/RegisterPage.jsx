@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Loader2, ArrowLeft, Check } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store/authStore";
+import { normaliseRole } from "../api/roles";
 
 const BG = "#FAF3E7";
 const BG_DEEP = "#F0E4CF";
@@ -28,11 +29,21 @@ const ROLES = [
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const register = useAuthStore((s) => s.register);
+  const { token, user, register } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "CUSTOMER" });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  // If already authenticated, redirect to role home
+  useEffect(() => {
+    if (token && user) {
+      const role = normaliseRole(user.role);
+      if (role === "DRIVER") navigate("/driver", { replace: true });
+      else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
+      else navigate("/", { replace: true });
+    }
+  }, [token, user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,7 +52,11 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await register(form);
-      toast.success(res.message || "Account created! Verify your code.");
+      sessionStorage.setItem("foodrush_pending_email", form.email);
+      if (res?.otp) {
+        sessionStorage.setItem("foodrush_pending_otp", res.otp);
+      }
+      toast.success(res?.message || "Account created! Verify your code.");
       navigate("/verify-otp", { state: { email: form.email, otp: res?.otp } });
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error || "Registration failed. Please check your connection.";

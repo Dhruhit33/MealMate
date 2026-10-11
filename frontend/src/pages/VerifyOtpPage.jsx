@@ -20,9 +20,9 @@ const TERRACOTTA_DEEP = "#8A2F18";
 export default function VerifyOtpPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const email = location.state?.email || "";
-  const initialOtp = location.state?.otp || "";
-  const verifyOtp = useAuthStore((s) => s.verifyOtp);
+  const { token, user, verifyOtp } = useAuthStore();
+  const email = location.state?.email || sessionStorage.getItem("foodrush_pending_email") || "";
+  const initialOtp = location.state?.otp || sessionStorage.getItem("foodrush_pending_otp") || "";
   const [displayOtp, setDisplayOtp] = useState(initialOtp);
   const [otp, setOtp] = useState(initialOtp ? initialOtp.split("").slice(0, 6) : ["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
@@ -30,13 +30,23 @@ export default function VerifyOtpPage() {
   const [cooldown, setCooldown] = useState(0);
   const refs = useRef([]);
 
-  // Redirect to register if no email was passed
+  // If already authenticated, redirect to expected dashboard
   useEffect(() => {
-    if (!email) {
+    if (token && user) {
+      const role = normaliseRole(user.role);
+      if (role === "DRIVER") navigate("/driver", { replace: true });
+      else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
+      else navigate("/", { replace: true });
+    }
+  }, [token, user, navigate]);
+
+  // Redirect to register if no email was passed or cached
+  useEffect(() => {
+    if (!token && !email) {
       toast.error("No email found. Please register again.");
       navigate("/register", { replace: true });
     }
-  }, [email, navigate]);
+  }, [token, email, navigate]);
 
   // Auto-set initial OTP if passed
   useEffect(() => {
@@ -76,10 +86,12 @@ export default function VerifyOtpPage() {
     if (code.length < 6) return toast.error("Enter the full 6-digit code");
     setLoading(true);
     try {
-      const user = await verifyOtp(email, code);
+      const verifiedUser = await verifyOtp(email, code);
+      sessionStorage.removeItem("foodrush_pending_email");
+      sessionStorage.removeItem("foodrush_pending_otp");
       toast.success("Email verified! Welcome to FoodRush!");
       
-      const role = normaliseRole(user.role);
+      const role = normaliseRole(verifiedUser.role);
       if (role === "DRIVER") navigate("/driver", { replace: true });
       else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
       else navigate("/", { replace: true });
@@ -99,6 +111,7 @@ export default function VerifyOtpPage() {
       if (newCode) {
         setDisplayOtp(newCode);
         setOtp(newCode.split(""));
+        sessionStorage.setItem("foodrush_pending_otp", newCode);
       }
       toast.success(res.data?.message || "New OTP generated!");
       setCooldown(60);

@@ -6,22 +6,32 @@ import { normaliseRole } from "../api/roles";
 
 
 export default function ProtectedRoute({ children, allowedRoles }) {
-  const { token, user, fetchProfile } = useAuthStore();
+  const { token, user, fetchProfile, logout } = useAuthStore();
   const location = useLocation();
   const [checking, setChecking] = useState(!user && !!token);
 
   useEffect(() => {
+    let isMounted = true;
     if (token && !user) {
-      fetchProfile().catch(() => {}).finally(() => setChecking(false));
+      setChecking(true);
+      fetchProfile()
+        .catch(() => {
+          if (isMounted) logout();
+        })
+        .finally(() => {
+          if (isMounted) setChecking(false);
+        });
     } else {
       setChecking(false);
     }
-  }, [token]);
+    return () => { isMounted = false; };
+  }, [token, user]);
 
   if (!token) return <Navigate to="/login" state={{ from: location }} replace />;
   if (checking) return <SkeletonPage />;
+  if (!user) return <Navigate to="/login" replace />;
 
-  if (allowedRoles && user) {
+  if (allowedRoles) {
     const role    = normaliseRole(user.role);
     const allowed = allowedRoles.some(r => normaliseRole(r) === role);
     if (!allowed) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -26,7 +26,7 @@ const CURRY = "#B5761A";
 export default function LoginPage() {
   const navigate   = useNavigate();
   const location   = useLocation();
-  const login      = useAuthStore((s) => s.login);
+  const { token, user, login } = useAuthStore();
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -35,21 +35,45 @@ export default function LoginPage() {
 
   const from = location.state?.from?.pathname || null;
 
+  // If already logged in, redirect to expected dashboard
+  useEffect(() => {
+    if (token && user) {
+      const role = normaliseRole(user.role);
+      if (role === "DRIVER") navigate("/driver", { replace: true });
+      else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
+      else navigate("/", { replace: true });
+    }
+  }, [token, user, navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) return toast.error("Please fill all fields");
     setLoading(true);
     try {
-      const user = await login(email, password);
-      toast.success(`Welcome back, ${user.name || "there"}! 🎉`);
+      const loggedUser = await login(email, password);
+      toast.success(`Welcome back, ${loggedUser.name || "there"}! 🎉`);
 
-      const role = normaliseRole(user.role);
-      // If redirected from a specific protected page, go back there
-      // But if it's just the root "/", let the role-based logic handle it
-      if (from && from !== "/" && from !== "/login" && from !== "/register") {
-        navigate(from, { replace: true });
-        return;
+      const role = normaliseRole(loggedUser.role);
+      // If redirected from a specific protected page, go back there if role matches
+      if (from && from !== "/" && from !== "/login" && from !== "/register" && from !== "/verify-otp") {
+        const isOwnerPath  = from.startsWith("/owner");
+        const isDriverPath = from.startsWith("/driver");
+        const isCustomerPath = !isOwnerPath && !isDriverPath;
+
+        if (role === "DRIVER" && isDriverPath) {
+          navigate(from, { replace: true });
+          return;
+        }
+        if (role === "RESTAURANT_OWNER" && isOwnerPath) {
+          navigate(from, { replace: true });
+          return;
+        }
+        if (role === "CUSTOMER" && isCustomerPath) {
+          navigate(from, { replace: true });
+          return;
+        }
       }
+
       if (role === "DRIVER")           navigate("/driver", { replace: true });
       else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
       else                             navigate("/", { replace: true });

@@ -77,7 +77,7 @@ export default function App() {
 
         {/* ── Driver routes ─────────────────────────────────────────── */}
         <Route element={
-          <ProtectedRoute allowedRoles={["DRIVER", "DELIVERY_DRIVER"]}>
+          <ProtectedRoute allowedRoles={["DRIVER", "DELIVERY_DRIVER", "DELIVERY_PARTNER"]}>
             <DriverLayout />
           </ProtectedRoute>
         }>
