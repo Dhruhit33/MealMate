@@ -184,14 +184,16 @@ export const useOwnerStore = create((set, get) => ({
     return res.data;
   },
 
-  updateOrderStatus: async (orderId, status) => {
-    const res = await api.patch(`/orders/${orderId}/status`, { status });
+  updateOrderStatus: async (orderId, status, reason = null) => {
+    const payload = { status };
+    if (reason) payload.reason = reason;
+    const res = await api.patch(`/orders/${orderId}/status`, payload);
     set((s) => ({
-      activeOrders: s.activeOrders.map((o) =>
-        o.orderId === orderId ? { ...o, status } : o
-      ),
+      activeOrders: status === "CANCELLED"
+        ? s.activeOrders.filter((o) => o.orderId !== orderId)
+        : s.activeOrders.map((o) => (o.orderId === orderId ? { ...o, status } : o)),
       orders: s.orders.map((o) =>
-        o.orderId === orderId ? { ...o, status } : o
+        o.orderId === orderId ? { ...o, status, cancellationReason: reason } : o
       ),
     }));
     return res.data;

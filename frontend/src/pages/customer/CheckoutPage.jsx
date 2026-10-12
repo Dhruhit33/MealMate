@@ -112,7 +112,12 @@ function OrderSuccess({ orderId, onTrack, onHome }) {
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
-  const { items, restaurantName, getTotal, clearCart } = useCartStore();
+  const items = useCartStore((s) => s.items);
+  const restaurantName = useCartStore((s) => s.restaurantName);
+  const clearCart = useCartStore((s) => s.clearCart);
+  const fetchCart = useCartStore((s) => s.fetchCart);
+  const cartLoading = useCartStore((s) => s.loading);
+
   const { addresses, fetchAddresses } = useAddressStore();
   const { placeOrder } = useOrderStore();
   const { balance, lockedBalance, fetchBalance, lockFunds, releaseFunds } = useWalletStore();
@@ -122,7 +127,7 @@ export default function CheckoutPage() {
   const [success, setSuccess] = useState(false);
   const [orderId, setOrderId] = useState(null);
 
-  const total       = getTotal();
+  const total = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.quantity || 1), 0);
   const deliveryFee = total >= 499 ? 0 : 29;
   const grandTotal  = total + deliveryFee;
   const hasSufficientBalance = balance !== null && balance >= grandTotal;
@@ -130,8 +135,8 @@ export default function CheckoutPage() {
   useEffect(() => {
     fetchAddresses();
     fetchBalance();
-    if (items.length === 0 && !success) navigate("/");
-  }, []);
+    fetchCart();
+  }, [fetchAddresses, fetchBalance, fetchCart]);
 
   useEffect(() => {
     if (addresses.length > 0 && !selectedAddress) setSelectedAddress(addresses[0].addressId);
@@ -191,6 +196,24 @@ export default function CheckoutPage() {
         onTrack={() => navigate(orderId ? `/orders/${orderId}/track` : "/orders")}
         onHome={() => navigate("/")}
       />
+    );
+  }
+
+  if (!cartLoading && items.length === 0) {
+    return (
+      <div style={{ maxWidth: 440, margin: "80px auto", textAlign: "center", animation: "fade-up 0.4s ease-out" }}>
+        <div style={{ width: 80, height: 80, borderRadius: "50%", background: FIELD, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <ShoppingBag size={36} style={{ color: INK_MUTED }} />
+        </div>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", color: INK, marginBottom: 8 }}>Your cart is empty</h2>
+        <p style={{ color: INK_SOFT, fontSize: "0.9rem", marginBottom: 24 }}>Add some delicious dishes from a restaurant first!</p>
+        <button onClick={() => navigate("/")} style={{
+          padding: "12px 28px", borderRadius: 999, border: "none",
+          background: `linear-gradient(135deg, ${TC_SOFT}, ${TC} 55%, ${TC_DEEP})`,
+          color: "#FFF5E6", fontSize: "0.9rem", fontWeight: 600, cursor: "pointer",
+          boxShadow: `0 6px 18px ${TC}35`,
+        }}>Browse restaurants</button>
+      </div>
     );
   }
 

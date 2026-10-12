@@ -8,7 +8,16 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
+  let token = useAuthStore.getState().token;
+  if (!token && typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem("foodrush-auth");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        token = parsed?.state?.token;
+      }
+    } catch (e) {}
+  }
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -20,29 +29,20 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401 && !isLoggingOut) {
-      // Only logout on auth-critical endpoints, not on every 401
       const url = err.config?.url || "";
       const isAuthEndpoint = url.includes("/auth/");
       const isProfileEndpoint = url.includes("/users/profile");
 
-      // If token exists but we got 401, it's expired — logout
-      // But skip for non-critical endpoints that might just not exist
+      // Only force logout if the core user profile endpoint fails with 401 (token genuinely invalid/expired)
+      // Never log out the user on incidental 401s from microservices (e.g. wallet, orders)
       const token = useAuthStore.getState().token;
-      if (token && !isAuthEndpoint) {
-        // Check if it's a genuine token expiry vs endpoint not found
-        const msg = (err.response?.data?.message || "").toLowerCase();
-        const isTokenExpired =
-          msg.includes("expired") ||
-          msg.includes("invalid token") ||
-          msg.includes("unauthorized") ||
-          msg.includes("jwt");
-
-        if (isTokenExpired || isProfileEndpoint) {
-          isLoggingOut = true;
-          useAuthStore.getState().logout();
+      if (token && isProfileEndpoint && !isAuthEndpoint) {
+        isLoggingOut = true;
+        useAuthStore.getState().logout();
+        if (!window.location.pathname.includes("/login")) {
           window.location.href = "/login";
-          setTimeout(() => { isLoggingOut = false; }, 2000);
         }
+        setTimeout(() => { isLoggingOut = false; }, 3000);
       }
     }
     return Promise.reject(err);

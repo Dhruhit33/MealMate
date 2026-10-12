@@ -133,13 +133,29 @@ public class WalletService {
     // ─── Get Wallet Balance ────────────────────────────────────────────
 
     public WalletResponse getBalance(String userId) {
-        return toResponse(getWalletEntity(userId));
+        Wallet wallet = walletRepository.findByUserId(userId)
+                .orElseGet(() -> {
+                    log.info("Auto-creating wallet for userId={}", userId);
+                    Wallet newWallet = Wallet.builder()
+                            .userId(userId)
+                            .totalBalance(BigDecimal.ZERO)
+                            .lockedBalance(BigDecimal.ZERO)
+                            .build();
+                    return walletRepository.save(newWallet);
+                });
+        return toResponse(wallet);
     }
-
 
     public Wallet getWalletEntity(String userId) {
         return walletRepository.findByUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Wallet not found for user: " + userId));
+                .orElseGet(() -> {
+                    Wallet newWallet = Wallet.builder()
+                            .userId(userId)
+                            .totalBalance(BigDecimal.ZERO)
+                            .lockedBalance(BigDecimal.ZERO)
+                            .build();
+                    return walletRepository.save(newWallet);
+                });
     }
 
     private WalletResponse toResponse(Wallet wallet) {

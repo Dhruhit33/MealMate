@@ -108,8 +108,8 @@ export default function Footer() {
           }}>Get in touch</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: "0.85rem" }}>
             <span>📧 support@foodrush.app</span>
-            <span>📱 +91 98765 43210</span>
-            <span>📍 Bhopal, India</span>
+            <span>📱 +91 1234567890</span>
+            <span>📍 Ahmedabad, India</span>
           </div>
         </div>
       </div>

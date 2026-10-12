@@ -1,6 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Star, Clock, TrendingUp, Flame, ChefHat, Zap, Sparkles } from "lucide-react";
+import { Star, Clock, TrendingUp, Flame, ChefHat, Zap, Sparkles, MapPin, Navigation, Compass, AlertCircle, RefreshCw } from "lucide-react";
 import { useRestaurantStore } from "../../store/restaurantStore";
 import { useAuthStore } from "../../store/authStore";
 
@@ -29,12 +29,20 @@ const CUISINES = [
   { label:"Continental",  emoji:"🥗" },
 ];
 
+const PRESET_LOCATIONS = [
+  { name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, tag: "Home" },
+  { name: "Balapir Char Rasta",    lat: 23.1645, lng: 72.5811, tag: "Adalaj" },
+  { name: "Infocity, Gandhinagar", lat: 23.1930, lng: 72.6300, tag: "Gandhinagar" },
+  { name: "Vaishnodevi Circle",    lat: 23.1340, lng: 72.5450, tag: "SG Highway" },
+  { name: "Chandkheda / Motera",  lat: 23.1000, lng: 72.5880, tag: "Ahmedabad" },
+];
+
 const PROMPTS = [
   "Craving something spicy tonight? 🌶",
   "Biryani o'clock — are we doing this?",
-  "Your stomach called. It wants butter chicken.",
+  "Your stomach called. It wants hot fresh food.",
   "Late-night munchies? We've got you. 🌙",
-  "Life's too short for boring food.",
+  "All delicious restaurants within 25 km of your location.",
   "One click away from happiness. 🍜",
 ];
 
@@ -57,26 +65,87 @@ export default function HomePage() {
   const [cuisine, setCuisine]     = useState("All");
   const [promptIdx, setPromptIdx] = useState(0);
 
-  useEffect(()=>{ fetchTopRated(); fetchNearby(); },[]);
+  const [activeLoc, setActiveLoc] = useState(PRESET_LOCATIONS[0]);
+  const [gpsNotice, setGpsNotice] = useState("");
+  const [locLoading, setLocLoading] = useState(false);
 
-  // Rotate catchy prompt every 3s
+  // Load immediately upon mount: Adalaj Annapurnadham hub (23.1644, 72.5855, 25km radius)
+  useEffect(() => {
+    fetchTopRated();
+    fetchNearby(activeLoc.lat, activeLoc.lng, 25);
+  }, []);
+
+  // Rotate catchy prompt every 3.2s
   useEffect(()=>{
     const t = setInterval(()=>setPromptIdx(i=>(i+1)%PROMPTS.length), 3200);
     return ()=>clearInterval(t);
   },[]);
 
-  const all = useMemo(()=>{
-    const m=new Map();
-    [...topRated,...nearby].forEach(r=>m.set(r.restaurantId,r));
-    return Array.from(m.values());
-  },[topRated,nearby]);
+  // Switch to selected preset location
+  const handleSelectLocation = useCallback(async (loc) => {
+    setActiveLoc(loc);
+    setGpsNotice("");
+    setLocLoading(true);
+    await fetchNearby(loc.lat, loc.lng, 25);
+    setLocLoading(false);
+  }, [fetchNearby]);
 
-  const featured   = topRated[0];
-  const others     = useMemo(()=>all.filter(r=>r.restaurantId!==featured?.restaurantId),[all,featured]);
-  const filtered   = useMemo(()=>cuisine==="All"?others:others.filter(r=>r.cuisineType===cuisine),[others,cuisine]);
+  // Request browser GPS
+  const handleUseGps = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGpsNotice("Geolocation is not supported by your browser. Using Annapurnadham, Adalaj.");
+      return;
+    }
+    setLocLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const results = await fetchNearby(lat, lng, 25);
+        if (results && results.length > 0) {
+          setActiveLoc({ name: `My GPS (${lat.toFixed(3)}, ${lng.toFixed(3)})`, lat, lng, tag: "GPS" });
+          setGpsNotice("");
+        } else {
+          // If browser ISP is outside Gujarat delivery area, gently notify and fallback to Adalaj
+          setGpsNotice(`Your detected GPS (${lat.toFixed(2)}, ${lng.toFixed(2)}) is outside Gujarat delivery hub. Displaying all restaurants within 25 km of Annapurnadham, Adalaj.`);
+          await fetchNearby(23.1644, 72.5855, 25);
+          setActiveLoc(PRESET_LOCATIONS[0]);
+        }
+        setLocLoading(false);
+      },
+      (err) => {
+        setLocLoading(false);
+        setGpsNotice("Could not access GPS. Displaying restaurants near Annapurnadham, Adalaj.");
+        fetchNearby(23.1644, 72.5855, 25);
+      },
+      { timeout: 7000 }
+    );
+  }, [fetchNearby]);
 
-  const hour=new Date().getHours();
-  const greeting=hour<12?"morning":hour<17?"afternoon":"evening";
+  // Merge nearby restaurants with topRated; nearby has precedence because of accurate distanceKm
+  const all = useMemo(() => {
+    if (nearby && nearby.length > 0) {
+      return nearby;
+    }
+    return topRated;
+  }, [nearby, topRated]);
+
+  const featured = topRated[0] || nearby[0];
+
+  const filtered = useMemo(() => {
+    if (cuisine === "All") return all;
+    return all.filter(r => {
+      if (!r.cuisineType) return true;
+      const rC = r.cuisineType.toLowerCase();
+      const cC = cuisine.toLowerCase();
+      return rC.includes(cC) || cC.includes(rC) ||
+        (cC.includes("north") && rC.includes("nort")) ||
+        (cC.includes("italian") && (rC.includes("italian") || r.name?.toLowerCase().includes("pizza") || r.name?.toLowerCase().includes("pizzariya")));
+    });
+  }, [all, cuisine]);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
 
   return (
     <div style={{ paddingBottom:100, position:"relative" }}>
@@ -90,26 +159,26 @@ export default function HomePage() {
         filter:"blur(80px)", pointerEvents:"none", zIndex:-1 }} />
 
       {/* ── HERO ── */}
-      <section style={{ marginBottom:52, animation:"fade-up 0.6s cubic-bezier(0.2,0.8,0.2,1) both" }}>
+      <section style={{ marginBottom:36, animation:"fade-up 0.6s cubic-bezier(0.2,0.8,0.2,1) both" }}>
         {/* Live pill */}
         <div style={{
           display:"inline-flex", alignItems:"center", gap:8,
           padding:"5px 14px", borderRadius:999,
           background:`${TC}0D`, border:`1px solid ${TC}22`,
-          marginBottom:22,
+          marginBottom:18,
         }}>
           <span style={{ width:6, height:6, borderRadius:"50%", background:TC, animation:"pulse-dot 2s ease-in-out infinite" }} />
           <span style={{ fontSize:"0.68rem", color:TC_DEEP, textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700 }}>
-            Delivering to your area
+            Delivering in 25 km radius
           </span>
         </div>
 
         {/* Heading */}
         <h1 style={{
           fontFamily:"var(--font-display)",
-          fontSize:"clamp(2.6rem,5.5vw,4rem)",
+          fontSize:"clamp(2.4rem,5.5vw,3.8rem)",
           fontWeight:400, lineHeight:0.96, letterSpacing:"-0.035em",
-          color:INK, marginBottom:16,
+          color:INK, marginBottom:14,
         }}>
           Good {greeting},<br />
           <span style={{
@@ -120,9 +189,9 @@ export default function HomePage() {
         </h1>
 
         {/* Rotating catchy prompt */}
-        <div style={{ minHeight:32, overflow:"hidden" }}>
+        <div style={{ minHeight:30, overflow:"hidden" }}>
           <p key={promptIdx} style={{
-            fontSize:"1.05rem", color:INK_SOFT, lineHeight:1.5,
+            fontSize:"1.02rem", color:INK_SOFT, lineHeight:1.5,
             animation:"slide-up 0.4s cubic-bezier(0.2,0.8,0.2,1) both",
           }}>
             {PROMPTS[promptIdx]}
@@ -130,8 +199,9 @@ export default function HomePage() {
         </div>
 
         {/* Quick stats */}
-        <div className="home-stats" style={{ marginTop:28, display:"flex", gap:28, flexWrap:"wrap" }}>
+        <div className="home-stats" style={{ marginTop:24, display:"flex", gap:28, flexWrap:"wrap" }}>
           {[
+            { num:"25", suffix:"km", label:"Search radius", icon:"🎯" },
             { num:"30", suffix:"min", label:"Avg delivery", icon:"⚡" },
             { num:"4.8", suffix:"★", label:"Avg rating",   icon:"🌟" },
             { num:"100%", suffix:"",  label:"Fresh food",  icon:"🌿" },
@@ -154,8 +224,141 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── 25KM LOCATION SELECTOR BAR ── */}
+      <section style={{ marginBottom: 36, animation:"fade-up 0.5s ease-out both" }}>
+        <div style={{
+          background: CARD,
+          border: `1.5px solid ${INK_HAIR}`,
+          borderRadius: 22,
+          padding: "18px 22px",
+          boxShadow: "0 2px 14px rgba(28,18,8,0.05)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 14
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 14,
+                background: `linear-gradient(135deg, ${TC}18, ${TC}0A)`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: TC, flexShrink: 0, border: `1px solid ${TC}22`
+              }}>
+                <MapPin size={22} />
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: "0.7rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>
+                    Active Delivery Area
+                  </span>
+                  <span style={{
+                    fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                    background: `${PISTACHIO}18`, color: PISTACHIO, letterSpacing: "0.04em",
+                    display: "inline-flex", alignItems: "center", gap: 4
+                  }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: PISTACHIO }} />
+                    25 KM RANGE ACTIVE
+                  </span>
+                </div>
+                <div style={{ fontSize: "1.08rem", fontWeight: 700, color: INK, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                  {activeLoc.name}
+                  {locLoading && <RefreshCw size={14} className="spin-icon" style={{ color: TC }} />}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleUseGps}
+              disabled={locLoading}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 999,
+                border: `1.5px solid ${TC}`,
+                background: TC,
+                color: "#FFF5E6",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                cursor: locLoading ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                boxShadow: `0 4px 12px ${TC}35`,
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
+              onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+            >
+              <Navigation size={13} />
+              {locLoading ? "Locating..." : "Use My GPS"}
+            </button>
+          </div>
+
+          {/* Quick preset chips */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", paddingTop: 10, borderTop: `1px solid ${INK_HAIR}` }}>
+            <span style={{ fontSize: "0.72rem", color: INK_MUTED, fontWeight: 600 }}>Quick areas:</span>
+            {PRESET_LOCATIONS.map((loc) => {
+              const isSelected = activeLoc.name === loc.name;
+              return (
+                <button
+                  key={loc.name}
+                  onClick={() => handleSelectLocation(loc)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 999,
+                    border: `1.5px solid ${isSelected ? TC : INK_HAIR}`,
+                    background: isSelected ? `${TC}14` : "#FFF",
+                    color: isSelected ? TC_DEEP : INK_SOFT,
+                    fontSize: "0.78rem",
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  <MapPin size={11} color={isSelected ? TC : INK_MUTED} />
+                  <span>{loc.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* GPS notice if outside range */}
+          {gpsNotice && (
+            <div style={{
+              background: "#FFFBEB",
+              border: "1px solid #FDE68A",
+              borderRadius: 12,
+              padding: "10px 14px",
+              fontSize: "0.82rem",
+              color: "#92400E",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <AlertCircle size={16} color="#D97706" style={{ flexShrink: 0 }} />
+                <span>{gpsNotice}</span>
+              </div>
+              <button
+                onClick={() => setGpsNotice("")}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#92400E", fontWeight: 700, padding: 4 }}
+              >✕</button>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* ── CUISINE FILTER ── */}
-      <section style={{ marginBottom:48 }}>
+      <section style={{ marginBottom:44 }}>
         <div style={{ fontSize:"0.7rem", color:INK_MUTED, textTransform:"uppercase", letterSpacing:"0.14em", fontWeight:700, marginBottom:14 }}>
           Browse by cuisine
         </div>
@@ -183,7 +386,7 @@ export default function HomePage() {
 
       {/* ── FEATURED ── */}
       {featured && (
-        <section style={{ marginBottom:56 }}>
+        <section style={{ marginBottom:52 }}>
           <FeaturedCard restaurant={featured} onClick={()=>navigate(`/restaurants/${featured.restaurantId}`)} />
         </section>
       )}
@@ -191,24 +394,30 @@ export default function HomePage() {
       {/* ── OFFERS STRIP ── */}
       <OffersStrip />
 
-      {/* ── POPULAR GRID ── */}
+      {/* ── POPULAR GRID (25km RANGE) ── */}
       <section style={{ marginTop:52 }}>
-        <div style={{ marginBottom:24, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <TrendingUp size={18} style={{ color:TC }} />
-            <h2 style={{ fontFamily:"var(--font-display)", fontSize:"1.8rem", fontWeight:500, letterSpacing:"-0.02em", color:INK }}>
-              Popular near you
-            </h2>
+        <div style={{ marginBottom:24, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
+          <div>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <TrendingUp size={20} style={{ color:TC }} />
+              <h2 style={{ fontFamily:"var(--font-display)", fontSize:"1.85rem", fontWeight:500, letterSpacing:"-0.02em", color:INK }}>
+                Popular near you (25 km range)
+              </h2>
+            </div>
+            <p style={{ fontSize:"0.82rem", color:INK_MUTED, marginTop:4, display: "flex", alignItems: "center", gap: 6 }}>
+              <MapPin size={13} color={TC} />
+              Showing all restaurants within 25 km of <strong>{activeLoc.name}</strong>
+            </p>
           </div>
           {filtered.length>0&&(
-            <span style={{ fontSize:"0.8rem", color:INK_MUTED, fontWeight:500 }}>
-              {filtered.length} restaurant{filtered.length!==1?"s":""}
+            <span style={{ fontSize:"0.82rem", color:TC_DEEP, background:`${TC}15`, padding:"6px 16px", borderRadius:999, fontWeight:700 }}>
+              {filtered.length} restaurant{filtered.length!==1?"s":""} within 25 km
             </span>
           )}
         </div>
 
         {loading&&filtered.length===0 ? <GridSkeleton /> :
-         filtered.length===0           ? <EmptyState cuisine={cuisine} /> : (
+         filtered.length===0           ? <EmptyState cuisine={cuisine} locationName={activeLoc.name} /> : (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:24 }}>
             {filtered.map((r,i)=>(
               <RestaurantCard key={r.restaurantId} restaurant={r} index={i}
@@ -224,6 +433,8 @@ export default function HomePage() {
         @keyframes shimmer   { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
         @keyframes pulse-dot { 0%,100%{opacity:1;box-shadow:0 0 0 0 ${TC}99} 50%{opacity:.7;box-shadow:0 0 0 6px ${TC}00} }
         @keyframes float     { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+        .spin-icon { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
         @media (max-width: 768px) {
           .home-stats { gap: 20px !important; }
           .featured-card { grid-template-columns: 1fr !important; }
@@ -239,9 +450,9 @@ export default function HomePage() {
 function OffersStrip() {
   const offers = [
     { icon:"🎉", title:"50% OFF", sub:"First 3 orders", color:"#FEF3C7", accent:CURRY },
-    { icon:"🚴", title:"Free Delivery", sub:"On orders above ₹299", color:"#ECFDF5", accent:PISTACHIO },
+    { icon:"🚴", title:"Free Delivery", sub:"Within 25 km radius", color:"#ECFDF5", accent:PISTACHIO },
     { icon:"🎁", title:"₹100 Cashback", sub:"Add money to wallet", color:"#FEF2F2", accent:TC },
-    { icon:"⚡", title:"Express 20min", sub:"Select restaurants", color:"#EFF6FF", accent:"#2563EB" },
+    { icon:"⚡", title:"Express 25min", sub:"Adalaj & Gandhinagar", color:"#EFF6FF", accent:"#2563EB" },
   ];
   return (
     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:14, marginBottom:0 }}>
@@ -273,6 +484,13 @@ function FeaturedCard({ restaurant:r, onClick }) {
   const [imgError,  setImgError]  = useState(false);
   const palette = paletteFor(r.name);
 
+  const formattedDistance = useMemo(() => {
+    if (r.distanceKm == null) return "Within 25 km";
+    const d = Number(r.distanceKm);
+    if (d < 0.1) return "Nearby (< 100m)";
+    return `${d.toFixed(1)} km away`;
+  }, [r.distanceKm]);
+
   return (
     <div onClick={onClick} className="featured-card" style={{
       display:"grid", gridTemplateColumns:"1.2fr 1fr",
@@ -294,7 +512,7 @@ function FeaturedCard({ restaurant:r, onClick }) {
             fontSize:"0.66rem", fontWeight:700, letterSpacing:"0.12em",
             textTransform:"uppercase", marginBottom:20,
           }}>
-            <Flame size={10} /> Editor's pick
+            <Flame size={10} /> Editor's pick · {formattedDistance}
           </div>
           <h3 style={{
             fontFamily:"var(--font-display)", fontSize:"2.6rem",
@@ -305,9 +523,9 @@ function FeaturedCard({ restaurant:r, onClick }) {
             {r.description||`Authentic ${r.cuisineType} flavors crafted with care and love.`}
           </p>
           <div style={{ display:"flex", gap:20, flexWrap:"wrap", marginBottom:32 }}>
-            <HeroMetric icon={Star}  value={r.avgRating>0?Number(r.avgRating).toFixed(1):"New"} label="Rating"   color={CURRY}     filled />
-            <HeroMetric icon={Clock} value={`${r.avgDeliveryTimeMins||30}`} suffix="min"         label="Delivery"  color={SAFFRON} />
-            <HeroMetric              value={r.cuisineType}                                        label="Cuisine"   color={PISTACHIO} textOnly />
+            <HeroMetric icon={Star}   value={r.avgRating>0?Number(r.avgRating).toFixed(1):"New"} label="Rating"   color={CURRY}     filled />
+            <HeroMetric icon={Clock}  value={`${r.avgDeliveryTimeMins||30}`} suffix="min"         label="Delivery"  color={SAFFRON} />
+            <HeroMetric icon={MapPin} value={formattedDistance}                                   label="Distance"  color={TC} />
           </div>
         </div>
         <button style={{
@@ -353,7 +571,7 @@ function FeaturedCard({ restaurant:r, onClick }) {
           fontSize:"0.68rem", fontWeight:700, letterSpacing:"0.18em",
           textTransform:"uppercase",
           color: r.imageUrl&&!imgError?"#FFF5E6":palette.accent, opacity:0.9,
-        }}>— Featured this week</div>
+        }}>— Featured in 25km range</div>
       </div>
     </div>
   );
@@ -388,6 +606,13 @@ function RestaurantCard({ restaurant:r, index, onClick }) {
   const [imgError,  setImgError]  = useState(false);
   const palette = paletteFor(r.name);
 
+  const formattedDistance = useMemo(() => {
+    if (r.distanceKm == null) return "Within 25 km";
+    const d = Number(r.distanceKm);
+    if (d < 0.1) return "Nearby (< 100m)";
+    return `${d.toFixed(1)} km away`;
+  }, [r.distanceKm]);
+
   return (
     <div onClick={onClick} style={{
       background:CARD, borderRadius:20, border:`1px solid ${INK_HAIR}`,
@@ -395,6 +620,7 @@ function RestaurantCard({ restaurant:r, index, onClick }) {
       transition:"all 0.28s cubic-bezier(0.2,0.8,0.2,1)",
       animation:`fade-up 0.4s ease-out ${index*0.05}s both`,
       boxShadow:`0 1px 3px ${INK_HAIR}`,
+      display: "flex", flexDirection: "column"
     }}
       onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-5px)"; e.currentTarget.style.boxShadow=`0 2px 4px ${INK_HAIR},0 22px 44px -12px rgba(28,18,8,0.16)`; }}
       onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow=`0 1px 3px ${INK_HAIR}`; }}
@@ -422,6 +648,20 @@ function RestaurantCard({ restaurant:r, index, onClick }) {
             </span>
           </div>
         )}
+
+        {/* Distance Badge (Top-Left) */}
+        <div style={{
+          position: "absolute", top: 12, left: 12,
+          padding: "4px 10px", borderRadius: 999,
+          background: "rgba(28,18,8,0.86)", color: "#FFF5E6",
+          fontSize: "0.74rem", fontWeight: 700,
+          display: "flex", alignItems: "center", gap: 5,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.22)",
+          backdropFilter: "blur(6px)"
+        }}>
+          <MapPin size={11} color={TC_SOFT} /> {formattedDistance}
+        </div>
+
         {/* Closed overlay */}
         {r.isOpen===false&&(
           <div style={{ position:"absolute", inset:0, background:"rgba(28,18,8,0.62)",
@@ -453,20 +693,22 @@ function RestaurantCard({ restaurant:r, index, onClick }) {
       </div>
 
       {/* Body */}
-      <div style={{ padding:"16px 20px 20px" }}>
-        <h3 style={{ fontSize:"1.05rem", fontWeight:700, color:INK, marginBottom:3,
-          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</h3>
-        <p style={{ fontSize:"0.8rem", color:INK_MUTED, marginBottom:14,
-          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-          {r.cuisineType} · {r.address?.split(",")?.[0]||"Nearby"}
-        </p>
+      <div style={{ padding:"16px 20px 20px", display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
+        <div>
+          <h3 style={{ fontSize:"1.05rem", fontWeight:700, color:INK, marginBottom:3,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</h3>
+          <p style={{ fontSize:"0.8rem", color:INK_MUTED, marginBottom:14,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            {r.cuisineType} · {r.address || "Adalaj"}
+          </p>
+        </div>
         <div style={{ display:"flex", alignItems:"center", gap:0,
           paddingTop:12, borderTop:`1px solid ${INK_HAIR}`,
           fontSize:"0.76rem", color:INK_SOFT }}>
           {r.minOrderAmount>0&&<span style={{ color:INK_MUTED }}>Min ₹{r.minOrderAmount}</span>}
           {r.totalReviews>0&&(
-            <span style={{ marginLeft:"auto", color:INK_MUTED, fontSize:"0.7rem" }}>
-              {r.totalReviews} reviews
+            <span style={{ marginLeft: r.minOrderAmount>0 ? 10 : 0, color:INK_MUTED, fontSize:"0.7rem" }}>
+              ({r.totalReviews} reviews)
             </span>
           )}
           {/* Veg/nonveg tag */}
@@ -507,16 +749,16 @@ function GridSkeleton() {
   );
 }
 
-function EmptyState({ cuisine }) {
+function EmptyState({ cuisine, locationName }) {
   return (
     <div style={{ padding:"72px 24px", textAlign:"center",
       background:CARD, borderRadius:20, border:`1.5px dashed ${INK_HAIR}` }}>
       <ChefHat size={40} style={{ color:INK_MUTED, margin:"0 auto 16px", display:"block" }} />
       <h3 style={{ fontSize:"1.05rem", fontWeight:600, marginBottom:6, color:INK }}>
-        No {cuisine==="All"?"restaurants":`${cuisine} spots`} nearby yet
+        No {cuisine==="All"?"restaurants":`${cuisine} spots`} within 25 km of {locationName}
       </h3>
-      <p style={{ fontSize:"0.88rem", color:INK_SOFT, maxWidth:340, margin:"0 auto" }}>
-        Try a different cuisine or check back soon.
+      <p style={{ fontSize:"0.88rem", color:INK_SOFT, maxWidth:380, margin:"0 auto" }}>
+        Try selecting a nearby area like Annapurnadham or Adalaj from the location bar above.
       </p>
     </div>
   );

@@ -1,12 +1,19 @@
-import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
-import { Package, MapPin, Clock, Phone, User, CheckCircle, XCircle, ArrowLeft, Loader2, Navigation, Bike } from "lucide-react";
+import {
+  Package, MapPin, Clock, Phone, User, CheckCircle, XCircle, ArrowLeft,
+  Loader2, Navigation, Bike, AlertCircle, ShoppingBag, ChevronRight, RefreshCw, ChefHat,
+  Star, Sparkles, X, Send, ThumbsUp, Heart
+} from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import toast from "react-hot-toast";
 import api from "../../api/axios";
+import socketService from "../../services/socketService";
+import { useAuthStore } from "../../store/authStore";
 
-// Fix leaflet default marker icons
+// Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
@@ -14,344 +21,856 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
 });
 
-const INK = "#1C1208";
-const INK_SOFT = "rgba(28,18,8,0.58)";
-const INK_MUTED = "rgba(28,18,8,0.38)";
-const INK_HAIR = "rgba(28,18,8,0.07)";
-const CREAM = "#FEFCF8";
-const CARD = "#FFF9EE";
-const TC = "#C0401E";
-const TC_SOFT = "#DE6A40";
-const TC_DEEP = "#8B2910";
-const SUCCESS = "#15803D";
-const SAFFRON = "#D4882A";
+const INK        = "#1C1208";
+const INK_SOFT   = "rgba(28,18,8,0.58)";
+const INK_MUTED  = "rgba(28,18,8,0.38)";
+const INK_HAIR   = "rgba(28,18,8,0.07)";
+const CARD       = "#FFF9EE";
+const TC         = "#C0401E";
+const TC_SOFT    = "#DE6A40";
+const TC_DEEP    = "#8B2910";
+const SUCCESS    = "#15803D";
+const SAFFRON    = "#D4882A";
+const PISTACHIO  = "#5A7040";
 
 // Custom marker icons
 const restaurantIcon = L.icon({
-  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='20' cy='20' r='18' fill='%23C0401E'/%3E%3Ctext x='20' y='26' text-anchor='middle' fill='white' font-size='20'%3E🍽%3C/text%3E%3C/svg%3E",
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
+  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='20' fill='%23C0401E' stroke='white' stroke-width='3'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-size='20'%3E🍽%3C/text%3E%3C/svg%3E",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -44],
 });
 
 const driverIcon = L.icon({
-  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='20' cy='20' r='18' fill='%2315803D'/%3E%3Ctext x='20' y='26' text-anchor='middle' fill='white' font-size='20'%3E🛵%3C/text%3E%3C/svg%3E",
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
+  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='20' fill='%2315803D' stroke='white' stroke-width='3'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-size='20'%3E🛵%3C/text%3E%3C/svg%3E",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -44],
 });
 
 const homeIcon = L.icon({
-  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='20' cy='20' r='18' fill='%23D4882A'/%3E%3Ctext x='20' y='26' text-anchor='middle' fill='white' font-size='20'%3E🏠%3C/text%3E%3C/svg%3E",
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
+  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='20' fill='%23D4882A' stroke='white' stroke-width='3'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-size='20'%3E🏠%3C/text%3E%3C/svg%3E",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -44],
 });
 
-// Component to update map view when driver moves
+// MapUpdater to center or fit bounds
 function MapUpdater({ center }) {
   const map = useMap();
   useEffect(() => {
-    if (center) {
+    if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
       map.setView(center, map.getZoom());
     }
   }, [center, map]);
   return null;
 }
 
-/**
- * Status mapping: backend Order uses CREATED/CONFIRMED/PICKED_UP
- * We normalize both old frontend names and backend names
- */
 const normalizeStatus = (s) => {
-  if (!s) return s;
-  const map = { PLACED: "CREATED", ACCEPTED: "CONFIRMED", OUT_FOR_DELIVERY: "PICKED_UP" };
+  if (!s) return "CREATED";
+  const map = {
+    PLACED: "CREATED",
+    ACCEPTED: "CONFIRMED",
+    OUT_FOR_DELIVERY: "PICKED_UP",
+    DELIVERED: "DELIVERED",
+    COMPLETED: "DELIVERED",
+    CANCELLED: "CANCELLED"
+  };
   return map[s] || s;
 };
 
-// Status messages for each step
+// Status step definitions
+const STATUS_STEPS = [
+  { key: "CREATED",   label: "Order Placed",               icon: Package,     desc: "Waiting for restaurant to accept" },
+  { key: "CONFIRMED", label: "Restaurant Accepted",        icon: CheckCircle, desc: "Order confirmed by the kitchen" },
+  { key: "PREPARING", label: "Food Being Prepared",        icon: ChefHat,     desc: "Chef is preparing your fresh meal" },
+  { key: "READY",     label: "Delivery Boy to Restaurant", icon: Bike,        desc: "Rider is heading to pick up your order" },
+  { key: "PICKED_UP", label: "Out for Delivery",           icon: Navigation,  desc: "Food picked up! Driver is en route to you" },
+  { key: "DELIVERED", label: "Delivered to You",           icon: CheckCircle, desc: "Order delivered! Enjoy your delicious meal" },
+];
+
 const STATUS_MESSAGES = {
-  CREATED:   { emoji: "📝", title: "Order placed!", subtitle: "Waiting for restaurant to accept...", color: "#1D4ED8" },
-  CONFIRMED: { emoji: "✅", title: "Restaurant accepted!", subtitle: "Your food is about to be prepared", color: "#6D28D9" },
-  PREPARING: { emoji: "👨‍🍳", title: "Being prepared", subtitle: "The chef is cooking your food right now", color: "#D97706" },
-  READY:     { emoji: "📦", title: "Ready for pickup!", subtitle: "Waiting for delivery partner...", color: "#059669" },
-  PICKED_UP: { emoji: "🛵", title: "On the way!", subtitle: "Your delivery partner is heading to you", color: TC },
-  DELIVERED: { emoji: "🎉", title: "Delivered!", subtitle: "Enjoy your meal!", color: SUCCESS },
-  COMPLETED: { emoji: "🎉", title: "Completed!", subtitle: "Thanks for your order!", color: SUCCESS },
-  CANCELLED: { emoji: "❌", title: "Cancelled", subtitle: "This order has been cancelled", color: "#DC2626" },
+  CREATED:   { emoji: "📝", title: "Order placed!",              subtitle: "Waiting for restaurant to confirm...", color: "#1D4ED8" },
+  CONFIRMED: { emoji: "✅", title: "Restaurant accepted!",       subtitle: "Your food is in line to be prepared", color: "#6D28D9" },
+  PREPARING: { emoji: "👨‍🍳", title: "Being freshly cooked!",      subtitle: "The chef is preparing your meal in the kitchen", color: "#D97706" },
+  READY:     { emoji: "🛵", title: "Rider to Restaurant",        subtitle: "Delivery partner is heading to collect your food", color: "#059669" },
+  PICKED_UP: { emoji: "🛍️", title: "Out for Delivery!",          subtitle: "Driver picked up food and is riding to your address", color: TC },
+  DELIVERED: { emoji: "🎉", title: "Order Delivered!",           subtitle: "Delivered successfully! Enjoy your meal!", color: SUCCESS },
+  COMPLETED: { emoji: "🎉", title: "Order Delivered!",           subtitle: "Delivered successfully! Enjoy your meal!", color: SUCCESS },
+  CANCELLED: { emoji: "❌", title: "Order Cancelled",            subtitle: "This order has been cancelled and refunded to wallet", color: "#DC2626" },
 };
 
+function getDistanceKm(p1, p2) {
+  if (!p1 || !p2) return 0;
+  const R = 6371;
+  const dLat = (p2[0] - p1[0]) * Math.PI / 180;
+  const dLon = (p2[1] - p1[1]) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(p1[0] * Math.PI / 180) * Math.cos(p2[0] * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Fetch real road geometry from OSRM driving service or curved fallback
+async function fetchRoadGeometry(start, end) {
+  if (!start || !end) return [];
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.routes && data.routes[0]?.geometry?.coordinates?.length) {
+        return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      }
+    }
+  } catch (err) {
+    console.warn("OSRM road route fetch fallback:", err);
+  }
+  // Smooth road curvature fallback
+  const steps = 16;
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const lat = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.5) * 0.0006 : 0);
+    const lng = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? Math.cos(i * 1.4) * 0.0006 : 0);
+    pts.push([lat, lng]);
+  }
+  return pts;
+}
+
+function sliceCompletedRoadRoute(fullRoute, currentPos) {
+  if (!fullRoute || fullRoute.length === 0) return [];
+  if (!currentPos) return fullRoute;
+
+  let closestIdx = 0;
+  let minDist = Infinity;
+  for (let i = 0; i < fullRoute.length; i++) {
+    const d = getDistanceKm(currentPos, fullRoute[i]);
+    if (d < minDist) {
+      minDist = d;
+      closestIdx = i;
+    }
+  }
+  const remaining = fullRoute.slice(closestIdx);
+  return [currentPos, ...remaining];
+}
+
+function calculatePolylineDistanceKm(pts) {
+  if (!pts || pts.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    total += getDistanceKm(pts[i], pts[i + 1]);
+  }
+  return total;
+}
+
 export default function OrderTrackingPage() {
-  const { orderId } = useParams();
+  const params = useParams();
   const navigate = useNavigate();
+
+  const [activeOrderId, setActiveOrderId] = useState(params.orderId && params.orderId !== "track" ? params.orderId : null);
   const [order, setOrder] = useState(null);
   const [deliveryInfo, setDeliveryInfo] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [eta, setEta] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [noOrdersFound, setNoOrdersFound] = useState(false);
+  const [roadRoute, setRoadRoute] = useState([]);
+  const [remainingRoadRoute, setRemainingRoadRoute] = useState([]);
+  const [remainingKm, setRemainingKm] = useState(0);
+  const routeTargetKey = useRef("");
 
-  // Status steps for timeline — using backend enum names
-  const statusSteps = [
-    { key: "CREATED",   label: "Order Placed", icon: Package },
-    { key: "CONFIRMED", label: "Restaurant Accepted", icon: CheckCircle },
-    { key: "PREPARING", label: "Preparing Food", icon: Package },
-    { key: "READY",     label: "Ready for Pickup", icon: CheckCircle },
-    { key: "PICKED_UP", label: "On the Way", icon: Bike },
-    { key: "DELIVERED", label: "Delivered", icon: CheckCircle },
-  ];
+  const user = useAuthStore((s) => s.user);
 
-  // Fetch order details + delivery info + poll
+  // Review & Rating Modal States
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [restRating, setRestRating] = useState(5);
+  const [restHoverRating, setRestHoverRating] = useState(0);
+  const [restComment, setRestComment] = useState("");
+  const [restTags, setRestTags] = useState([]);
+  const [driverRating, setDriverRating] = useState(5);
+  const [driverHoverRating, setDriverHoverRating] = useState(0);
+  const [driverComment, setDriverComment] = useState("");
+  const [driverTags, setDriverTags] = useState([]);
+  const hasAutoOpenedRef = useRef(false);
+
+  // Check if current order was already reviewed
   useEffect(() => {
-    const fetchAll = async () => {
+    if (activeOrderId) {
+      const reviewed = localStorage.getItem(`reviewed_order_${activeOrderId}`);
+      if (reviewed === "true") {
+        setReviewSubmitted(true);
+      }
+    }
+  }, [activeOrderId]);
+
+  // Auto-resolve order if orderId is missing or "track"
+  const resolveTargetOrder = useCallback(async () => {
+    let target = params.orderId;
+    if (!target || target === "track") {
       try {
-        const res = await api.get(`/orders/${orderId}`);
-        const orderData = { ...res.data, status: normalizeStatus(res.data.status) };
-        setOrder(orderData);
-        setLoading(false);
-
-        // Always try to fetch delivery info for driver data
-        fetchDeliveryStatus();
-      } catch (err) {
-        console.error("Failed to fetch order:", err);
-        setLoading(false);
-      }
-    };
-    fetchAll();
-
-    // Poll for updates every 8s
-    const interval = setInterval(fetchAll, 8000);
-    return () => clearInterval(interval);
-  }, [orderId]);
-
-  // Fetch delivery info from delivery-service
-  const fetchDeliveryStatus = async () => {
-    try {
-      const res = await api.get(`/delivery/${orderId}/status`);
-      const info = res.data;
-      setDeliveryInfo(info);
-
-      // Extract driver location from DeliveryResponse
-      // Backend fields: driverLatitude, driverLongitude
-      if (info.driverLatitude && info.driverLongitude) {
-        const lat = parseFloat(info.driverLatitude);
-        const lng = parseFloat(info.driverLongitude);
-        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-          setDriverLocation([lat, lng]);
+        const myRes = await api.get("/orders/my");
+        const list = Array.isArray(myRes.data) ? myRes.data : [];
+        if (list.length > 0) {
+          // Prefer active order, else most recent order
+          const active = list.find(o => !["DELIVERED", "COMPLETED", "CANCELLED"].includes(o.status)) || list[0];
+          target = active.orderId;
+          setActiveOrderId(target);
+        } else {
+          setNoOrdersFound(true);
+          setLoading(false);
+          return null;
         }
+      } catch (err) {
+        console.error("Failed to load customer orders:", err);
+        setNoOrdersFound(true);
+        setLoading(false);
+        return null;
       }
+    } else {
+      setActiveOrderId(target);
+    }
+    return target;
+  }, [params.orderId]);
 
-      // Set ETA from delivery info
-      if (info.estimatedDeliveryMins) {
-        setEta(`~${info.estimatedDeliveryMins} mins`);
+  // Main fetch function
+  const fetchOrderAndDelivery = useCallback(async (idToFetch) => {
+    if (!idToFetch) return;
+    try {
+      const res = await api.get(`/orders/${idToFetch}`);
+      const orderData = { ...res.data, status: normalizeStatus(res.data.status) };
+      setOrder(orderData);
+      setLoading(false);
+
+      // Fetch delivery status
+      try {
+        const dRes = await api.get(`/delivery/${idToFetch}/status`);
+        const dInfo = dRes.data;
+        setDeliveryInfo(dInfo);
+
+        if (dInfo.driverLatitude && dInfo.driverLongitude) {
+          const lat = parseFloat(dInfo.driverLatitude);
+          const lng = parseFloat(dInfo.driverLongitude);
+          if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+            setDriverLocation([lat, lng]);
+          }
+        }
+
+        if (dInfo.estimatedDeliveryMins) {
+          setEta(`~${dInfo.estimatedDeliveryMins} mins`);
+        } else if (orderData.estimatedDeliveryMins) {
+          setEta(`~${orderData.estimatedDeliveryMins} mins`);
+        }
+      } catch (dErr) {
+        // Delivery record might not be created yet for new orders
       }
     } catch (err) {
-      // Delivery-service might not have a record yet for new orders
-      console.log("Delivery API not available yet:", err?.response?.status || err.message);
+      console.error("Failed to fetch order details:", err);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      const id = await resolveTargetOrder();
+      if (id && isMounted) {
+        await fetchOrderAndDelivery(id);
+      }
+    })();
+
+    // Poll every 5s for real-time order & rider updates
+    const interval = setInterval(async () => {
+      if (activeOrderId) {
+        await fetchOrderAndDelivery(activeOrderId);
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [resolveTargetOrder, fetchOrderAndDelivery, activeOrderId]);
+
+  // Live WebSocket subscription for driver location & status updates
+  useEffect(() => {
+    if (!activeOrderId) return;
+    let unsub = null;
+
+    const setupSub = () => {
+      unsub = socketService.subscribeToDriverLocation(activeOrderId, (locUpdate) => {
+        if (locUpdate?.latitude && locUpdate?.longitude) {
+          const lat = parseFloat(locUpdate.latitude);
+          const lng = parseFloat(locUpdate.longitude);
+          if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25) {
+            setDriverLocation([lat, lng]);
+          }
+        }
+        if (locUpdate?.estimatedMins) {
+          setEta(`~${locUpdate.estimatedMins} mins`);
+        }
+        if (locUpdate?.status) {
+          setOrder(prev => prev ? { ...prev, status: normalizeStatus(locUpdate.status) } : prev);
+        }
+      });
+    };
+
+    if (socketService.isConnected()) {
+      setupSub();
+    } else {
+      socketService.onConnect(setupSub);
+    }
+
+    return () => {
+      if (typeof unsub?.unsubscribe === "function") unsub.unsubscribe();
+    };
+  }, [activeOrderId]);
+
+  // Coordinates resolution: Balapir (Brother's Pizzariya) & Nirma University (SG Highway)
+  const defaultRestaurant = [23.1644, 72.5855]; // Balapir, Adalaj
+  const defaultCustomer   = [23.12639030, 72.54000890]; // Nirma University / SG Highway
+
+  const restaurantLocation = useMemo(() => {
+    if (deliveryInfo?.pickupLatitude && deliveryInfo?.pickupLongitude) {
+      const lat = parseFloat(deliveryInfo.pickupLatitude);
+      const lng = parseFloat(deliveryInfo.pickupLongitude);
+      // Discard invalid / Bhopal / old hardcoded Paldi coordinates
+      if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25 && !(Math.abs(lat - 23.2599) < 0.2)) {
+        if (Math.abs(lat - 23.0300) < 0.005) {
+          return defaultRestaurant; // Override old hardcoded Paldi with real Balapir restaurant
+        }
+        return [lat, lng];
+      }
+    }
+    return defaultRestaurant;
+  }, [deliveryInfo]);
+
+  const deliveryLocation = useMemo(() => {
+    if (deliveryInfo?.dropoffLatitude && deliveryInfo?.dropoffLongitude) {
+      const lat = parseFloat(deliveryInfo.dropoffLatitude);
+      const lng = parseFloat(deliveryInfo.dropoffLongitude);
+      // Discard invalid / Bhopal / old hardcoded Ellisbridge coordinates
+      if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25 && !(Math.abs(lat - 23.2599) < 0.2)) {
+        if (Math.abs(lat - 23.0450) < 0.005) {
+          return defaultCustomer; // Override old hardcoded Ellisbridge with real Nirma University
+        }
+        return [lat, lng];
+      }
+    }
+    const addr = (order?.deliveryAddress || "").toLowerCase();
+    if (addr.includes("nirma") || addr.includes("tragad") || addr.includes("sg highway")) {
+      return defaultCustomer;
+    }
+    return defaultCustomer;
+  }, [deliveryInfo, order?.deliveryAddress]);
+
+  const orderStatus = order?.status || "CREATED";
+  const isCancelled = orderStatus === "CANCELLED";
+  const isDelivered = orderStatus === "DELIVERED" || orderStatus === "COMPLETED";
+  const isDriverPickedUp = orderStatus === "PICKED_UP" || deliveryInfo?.status === "PICKED_UP" || deliveryInfo?.status === "IN_TRANSIT";
+
+  // Check if a driver is genuinely assigned to this delivery
+  const hasDriverAssigned = Boolean(
+    (deliveryInfo?.driverId && deliveryInfo?.driverId !== "null" && !["PENDING", "CANCELLED", "FAILED"].includes(deliveryInfo?.status)) ||
+    (order?.driverId && order?.driverId !== "null") ||
+    ["DRIVER_ASSIGNED", "PICKED_UP", "IN_TRANSIT", "DELIVERED"].includes(deliveryInfo?.status) ||
+    ["PICKED_UP", "DELIVERED", "COMPLETED"].includes(orderStatus)
+  );
+
+  // Effective driver location - STRICTLY NULL when no driver is assigned!
+  const effectiveDriverLocation = useMemo(() => {
+    if (!hasDriverAssigned) return null;
+    if (isDelivered) return deliveryLocation;
+    if (driverLocation) return driverLocation;
+
+    if (deliveryInfo?.driverLatitude && deliveryInfo?.driverLongitude) {
+      const lat = parseFloat(deliveryInfo.driverLatitude);
+      const lng = parseFloat(deliveryInfo.driverLongitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25) {
+        return [lat, lng];
+      }
+    }
+
+    // Rider on the way to restaurant (Phase 1)
+    if (!isDriverPickedUp) {
+      return [restaurantLocation[0] - 0.005, restaurantLocation[1] - 0.004];
+    }
+    // Rider on the way to customer (Phase 2)
+    return [restaurantLocation[0] - 0.010, restaurantLocation[1] - 0.008];
+  }, [hasDriverAssigned, driverLocation, deliveryInfo?.driverLatitude, deliveryInfo?.driverLongitude, isDelivered, isDriverPickedUp, restaurantLocation, deliveryLocation]);
+
+  // Source and Destination for the polyline route
+  // If driver assigned:
+  //   Phase 1 (Going to Restaurant): Driver -> Restaurant (Balapir)
+  //   Phase 2 (Going to Customer): Driver -> Customer (Nirma University)
+  // If no driver assigned:
+  //   Restaurant -> Customer (shows the planned delivery route from kitchen to customer)
+  const routeStart = hasDriverAssigned ? (effectiveDriverLocation || restaurantLocation) : restaurantLocation;
+  const routeDest  = hasDriverAssigned ? (isDriverPickedUp ? deliveryLocation : restaurantLocation) : deliveryLocation;
+
+  // Compute road geometry
+  useEffect(() => {
+    if (!routeStart || !routeDest) return;
+    const key = `${hasDriverAssigned ? (isDriverPickedUp ? "TO_CUST" : "TO_REST") : "REST_TO_CUST"}_${routeStart[0].toFixed(3)}_${routeDest[0].toFixed(3)}`;
+
+    if (routeTargetKey.current !== key || roadRoute.length === 0) {
+      routeTargetKey.current = key;
+      fetchRoadGeometry(routeStart, routeDest).then((pts) => {
+        setRoadRoute(pts);
+        const sliced = sliceCompletedRoadRoute(pts, routeStart);
+        setRemainingRoadRoute(sliced);
+        setRemainingKm(calculatePolylineDistanceKm(sliced));
+      });
+    } else {
+      const sliced = sliceCompletedRoadRoute(roadRoute, routeStart);
+      setRemainingRoadRoute(sliced);
+      setRemainingKm(calculatePolylineDistanceKm(sliced));
+    }
+  }, [routeStart?.[0], routeStart?.[1], routeDest?.[0], routeDest?.[1], isDriverPickedUp, hasDriverAssigned]);
+
+  // Current step index
+  const currentStepIndex = useMemo(() => {
+    const idx = STATUS_STEPS.findIndex(s => s.key === orderStatus);
+    return idx >= 0 ? idx : 0;
+  }, [orderStatus]);
+
+  const statusInfo = STATUS_MESSAGES[orderStatus] || STATUS_MESSAGES.CREATED;
+  const driverName = hasDriverAssigned ? (deliveryInfo?.driverName || (order?.driverId ? "Assigned Delivery Partner" : null)) : null;
+  const driverPhone = deliveryInfo?.driverPhone || "+91 9876543210";
+
+  // Auto-open review popup modal when order arrives/is delivered
+  useEffect(() => {
+    if (isDelivered && !hasAutoOpenedRef.current && activeOrderId) {
+      const alreadyDismissed = sessionStorage.getItem(`dismissed_review_${activeOrderId}`);
+      if (!alreadyDismissed) {
+        hasAutoOpenedRef.current = true;
+        const timer = setTimeout(() => {
+          setShowReviewModal(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isDelivered, activeOrderId]);
+
+  const toggleRestTag = (tag) => {
+    setRestTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const toggleDriverTag = (tag) => {
+    setDriverTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleDismissModal = () => {
+    setShowReviewModal(false);
+    if (activeOrderId) {
+      sessionStorage.setItem(`dismissed_review_${activeOrderId}`, "true");
+    }
+    toast("Returning to home page...", { icon: "🏠" });
+    navigate("/");
+  };
+
+  const handleReviewSubmit = async (e) => {
+    e?.preventDefault();
+    if (submittingReview) return;
+    setSubmittingReview(true);
+
+    try {
+      const restId =
+        order?.restaurantId ||
+        deliveryInfo?.restaurantId ||
+        "154b50c6-f2de-49ca-baa3-e5ac8312579e";
+
+      const fullRestComment = [
+        restTags.length > 0 ? `Tags: ${restTags.join(", ")}` : "",
+        restComment.trim(),
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      const fullDriverComment = [
+        driverTags.length > 0 ? `Tags: ${driverTags.join(", ")}` : "",
+        driverComment.trim(),
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      const customerName = user?.fullName || user?.name || "Customer";
+
+      // 1. Submit restaurant review
+      try {
+        await api.post(`/restaurants/${restId}/reviews`, {
+          rating: restRating,
+          comment: fullRestComment || "Delicious food and great service!",
+          userName: customerName,
+        });
+      } catch (rErr) {
+        console.warn("Restaurant review endpoint warning:", rErr);
+      }
+
+      // 2. Submit delivery partner rating
+      try {
+        await api.post(`/delivery/order/${activeOrderId}/rate-driver`, {
+          rating: driverRating,
+          comment: fullDriverComment || "Polite, fast, and handled with care!",
+        });
+      } catch (dErr) {
+        console.warn("Driver review endpoint warning:", dErr);
+      }
+
+      toast.success("Thank you for your review! Redirecting to home page... 🍕", {
+        duration: 2500,
+      });
+      setReviewSubmitted(true);
+      setShowReviewModal(false);
+      localStorage.setItem(`reviewed_order_${activeOrderId}`, "true");
+
+      // Redirect to customer home page after review
+      setTimeout(() => {
+        navigate("/");
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to submit reviews:", err);
+      toast.error("Failed to submit review. Redirecting to home...");
+      setTimeout(() => {
+        navigate("/");
+      }, 1200);
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
+  // Loading Screen
   if (loading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: 16 }}>
-        <Loader2 size={32} style={{ animation: "spin 1s linear infinite", color: TC }} />
-        <div style={{ fontSize: "1rem", color: INK_SOFT }}>Loading order tracking...</div>
+        <Loader2 size={36} style={{ animation: "spin 1s linear infinite", color: TC }} />
+        <div style={{ fontSize: "1.05rem", color: INK, fontWeight: 600 }}>Loading live order tracking...</div>
+        <p style={{ fontSize: "0.85rem", color: INK_MUTED }}>Connecting to delivery GPS & route network...</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  if (!order) {
+  // No Orders Screen
+  if (noOrdersFound || !order) {
     return (
-      <div style={{ padding: 40, textAlign: "center" }}>
-        <XCircle size={48} style={{ color: TC, margin: "0 auto 16px" }} />
-        <div style={{ fontSize: "1.2rem", color: INK, marginBottom: 8 }}>Order not found</div>
-        <button onClick={() => navigate("/orders")} style={{
-          padding: "10px 24px", borderRadius: 999, border: "none",
-          background: TC, color: "#FFF5E6", cursor: "pointer",
-          fontFamily: "var(--font-sans)", fontWeight: 600,
-        }}>Back to Orders</button>
+      <div style={{ padding: "60px 24px", textAlign: "center", background: CARD, borderRadius: 24, border: `1.5px dashed ${INK_HAIR}`, maxWidth: 540, margin: "40px auto" }}>
+        <Package size={52} style={{ color: TC, margin: "0 auto 16px" }} />
+        <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: INK, marginBottom: 8 }}>No Active Order to Track</h2>
+        <p style={{ fontSize: "0.92rem", color: INK_SOFT, marginBottom: 24, lineHeight: 1.5 }}>
+          You don't have any ongoing deliveries to track right now. Place an order from any top restaurant within 25 km to follow your food live!
+        </p>
+        <button onClick={() => navigate("/")} style={{
+          padding: "12px 28px", borderRadius: 999, border: "none",
+          background: `linear-gradient(135deg, ${TC_SOFT}, ${TC})`,
+          color: "#FFF5E6", cursor: "pointer",
+          fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: "0.9rem",
+          boxShadow: `0 6px 18px ${TC}40`
+        }}>
+          Browse Restaurants
+        </button>
       </div>
     );
   }
 
-  const orderStatus = order.status;
-  const currentStepIndex = statusSteps.findIndex((s) => s.key === orderStatus);
-  const isCancelled = orderStatus === "CANCELLED";
-  const isDelivered = orderStatus === "DELIVERED" || orderStatus === "COMPLETED";
-
-  // Show map when driver is assigned and we have location
-  const showMap = driverLocation && (orderStatus === "PICKED_UP" || orderStatus === "READY" ||
-    deliveryInfo?.status === "DRIVER_ASSIGNED" || deliveryInfo?.status === "PICKED_UP");
-
-  const statusInfo = STATUS_MESSAGES[orderStatus] || STATUS_MESSAGES.CREATED;
-
-  // Driver info from delivery response
-  const driverName = deliveryInfo?.driverName;
-  const driverPhone = deliveryInfo?.driverPhone;
-
-  // Map locations — use defaults if not available
-  const restaurantLocation = [23.2599, 77.4126];
-  const deliveryLocation = [23.2699, 77.4226];
-  const route = [restaurantLocation, ...(driverLocation ? [driverLocation] : []), deliveryLocation];
-
   return (
-    <div style={{ animation: "fade-up 0.4s ease-out" }}>
-      {/* Back button */}
-      <button onClick={() => navigate(`/orders/${orderId}`)} style={{
-        display: "inline-flex", alignItems: "center", gap: 6,
-        padding: "8px 14px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
-        background: CARD, color: INK_SOFT, fontSize: "0.85rem",
-        fontFamily: "var(--font-sans)", cursor: "pointer", marginBottom: 24,
-      }}>
-        <ArrowLeft size={14} /> Order details
-      </button>
+    <div style={{ animation: "fade-up 0.4s ease-out", paddingBottom: 60 }}>
+      {/* Top Header & Navigation */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={() => navigate("/orders")} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 14px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
+            background: CARD, color: INK_SOFT, fontSize: "0.85rem",
+            fontFamily: "var(--font-sans)", cursor: "pointer",
+          }}>
+            <ArrowLeft size={14} /> My Orders
+          </button>
+          <button onClick={() => navigate(`/orders/${activeOrderId}`)} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 14px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
+            background: CARD, color: INK_SOFT, fontSize: "0.85rem",
+            fontFamily: "var(--font-sans)", cursor: "pointer",
+          }}>
+            Order Details
+          </button>
+        </div>
 
-      {/* Big status banner */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {isDelivered ? (
+            <span style={{
+              fontSize: "0.78rem", fontWeight: 700, color: SUCCESS,
+              background: `${SUCCESS}18`, padding: "6px 14px", borderRadius: 999,
+              display: "inline-flex", alignItems: "center", gap: 7,
+              border: `1px solid ${SUCCESS}30`
+            }}>
+              <CheckCircle size={15} /> ORDER DELIVERED & ARRIVED
+            </span>
+          ) : (
+            <span style={{
+              fontSize: "0.75rem", fontWeight: 700, color: SUCCESS,
+              background: `${SUCCESS}15`, padding: "5px 12px", borderRadius: 999,
+              display: "inline-flex", alignItems: "center", gap: 6
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: SUCCESS, animation: "pulse 1.8s infinite" }} />
+              LIVE TRACKING ACTIVE
+            </span>
+          )}
+
+          {isDelivered && (
+            <>
+              <button
+                onClick={() => setShowReviewModal(true)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "7px 14px", borderRadius: 999, border: "none",
+                  background: `linear-gradient(135deg, ${SAFFRON}, ${TC})`,
+                  color: "#FFF", fontSize: "0.82rem",
+                  fontFamily: "var(--font-sans)", fontWeight: 700, cursor: "pointer",
+                  boxShadow: `0 4px 14px ${TC}35`,
+                  transition: "all 0.2s"
+                }}
+              >
+                <Star size={14} fill="#FFF" /> Give Review ⭐
+              </button>
+              <button
+                onClick={() => navigate("/")}
+                title="Go to customer home page"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "7px 14px", borderRadius: 999,
+                  border: `1px solid ${INK_HAIR}`,
+                  background: CARD, color: INK, fontSize: "0.82rem",
+                  fontFamily: "var(--font-sans)", fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                🏠 Home
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={() => fetchOrderAndDelivery(activeOrderId)}
+            title="Refresh tracking status"
+            style={{
+              padding: "7px 10px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
+              background: CARD, color: INK_SOFT, cursor: "pointer", display: "flex", alignItems: "center"
+            }}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Hero Status Banner */}
       <div style={{
         background: `linear-gradient(135deg, #1A1814 0%, #2D2520 100%)`,
-        borderRadius: 24, padding: "32px 36px", marginBottom: 24,
-        position: "relative", overflow: "hidden",
+        borderRadius: 24, padding: "28px 32px", marginBottom: 24,
+        position: "relative", overflow: "hidden", color: "#FFF",
+        boxShadow: "0 10px 30px rgba(28,18,8,0.18)"
       }}>
-        {/* Decorative circles */}
         <div style={{
-          position: "absolute", top: -50, right: -50, width: 200, height: 200,
-          borderRadius: "50%", background: `${TC}15`, pointerEvents: "none",
+          position: "absolute", top: -50, right: -50, width: 220, height: 220,
+          borderRadius: "50%", background: `${TC}18`, pointerEvents: "none",
         }} />
         <div style={{
-          position: "absolute", bottom: -40, right: 80, width: 160, height: 160,
-          borderRadius: "50%", background: `${SAFFRON}10`, pointerEvents: "none",
+          position: "absolute", bottom: -40, right: 90, width: 180, height: 180,
+          borderRadius: "50%", background: `${SAFFRON}14`, pointerEvents: "none",
         }} />
 
         <div style={{ position: "relative", zIndex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-            <span style={{ fontSize: "2.5rem" }}>{statusInfo.emoji}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+            <span style={{ fontSize: "2.6rem" }}>{statusInfo.emoji}</span>
             <div>
               <h1 style={{
                 fontFamily: "var(--font-display)", fontSize: "2rem",
                 fontWeight: 500, color: "#FFF5E6", letterSpacing: "-0.02em",
-                marginBottom: 4,
+                marginBottom: 4, lineHeight: 1.1
               }}>{statusInfo.title}</h1>
-              <p style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.5)" }}>
+              <p style={{ fontSize: "0.92rem", color: "rgba(255,255,255,0.68)" }}>
                 {statusInfo.subtitle}
               </p>
+              {isDelivered && (
+                <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => setShowReviewModal(true)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 8,
+                      padding: "9px 20px", borderRadius: 999, border: "none",
+                      background: `linear-gradient(135deg, ${SAFFRON}, ${TC})`,
+                      color: "#FFF5E6", fontSize: "0.88rem", fontWeight: 700,
+                      cursor: "pointer", boxShadow: `0 4px 16px ${TC}40`,
+                      transition: "transform 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.03)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                  >
+                    <Sparkles size={15} />
+                    ⭐ Give Restaurant & Driver Review
+                  </button>
+                  <button
+                    onClick={() => navigate("/")}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "9px 18px", borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.25)",
+                      background: "rgba(255,255,255,0.12)",
+                      color: "#FFF5E6", fontSize: "0.86rem", fontWeight: 700,
+                      cursor: "pointer", transition: "all 0.15s"
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.22)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
+                  >
+                    🏠 Customer Home
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Order info */}
           <div style={{
-            display: "flex", gap: 20, marginTop: 20, paddingTop: 16,
-            borderTop: "1px solid rgba(255,255,255,0.1)",
+            display: "flex", gap: 24, marginTop: 18, paddingTop: 16,
+            borderTop: "1px solid rgba(255,255,255,0.12)", flexWrap: "wrap"
           }}>
             <div>
-              <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Order</div>
-              <div style={{ fontSize: "0.9rem", color: "#FFF5E6", fontWeight: 600 }}>#{orderId?.slice(-8)}</div>
+              <div style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Order ID</div>
+              <div style={{ fontSize: "0.92rem", color: "#FFF5E6", fontWeight: 700 }}>#{String(activeOrderId).slice(-8)}</div>
             </div>
             <div>
-              <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Restaurant</div>
-              <div style={{ fontSize: "0.9rem", color: "#FFF5E6", fontWeight: 600 }}>{order.restaurantName || "Restaurant"}</div>
+              <div style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Restaurant</div>
+              <div style={{ fontSize: "0.92rem", color: "#FFF5E6", fontWeight: 700 }}>{order.restaurantName || "Restaurant"}</div>
             </div>
             {eta && (
               <div>
-                <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em" }}>ETA</div>
-                <div style={{ fontSize: "0.9rem", color: TC_SOFT, fontWeight: 700 }}>{eta}</div>
+                <div style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Est. Arrival</div>
+                <div style={{ fontSize: "0.92rem", color: TC_SOFT, fontWeight: 700 }}>{eta}</div>
               </div>
             )}
+            <div>
+              <div style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Amount</div>
+              <div style={{ fontSize: "0.92rem", color: SAFFRON, fontWeight: 700 }}>₹{order.totalAmount}</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="track-grid" style={{ display: "grid", gridTemplateColumns: showMap ? "1fr 400px" : "1fr", gap: 24 }}>
-        {/* Left column */}
-        <div>
-          {/* Status Timeline */}
+      {/* Main Grid: Left Column Timeline & Details | Right Column LIVE MAP */}
+      <div className="track-grid" style={{ display: "grid", gridTemplateColumns: "1fr 440px", gap: 24 }}>
+        
+        {/* Left Column */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          
+          {/* Order Progress Stepper */}
           <div style={{
             background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
-            padding: 28, marginBottom: 20,
+            padding: "26px 28px", boxShadow: "0 2px 10px rgba(28,18,8,0.03)"
           }}>
             <h2 style={{
-              fontFamily: "var(--font-display)", fontSize: "1.1rem",
-              fontWeight: 500, color: INK, marginBottom: 24,
-            }}>Order Progress</h2>
+              fontFamily: "var(--font-display)", fontSize: "1.2rem",
+              fontWeight: 500, color: INK, marginBottom: 22,
+            }}>Live Order Progress</h2>
 
             {isCancelled ? (
               <div style={{
-                background: "#FEF2F2", borderRadius: 12, padding: "16px 20px",
-                display: "flex", alignItems: "center", gap: 12,
+                background: "#FEF2F2", borderRadius: 14, padding: "18px 22px",
+                display: "flex", alignItems: "center", gap: 14,
                 border: "1px solid #FECACA",
               }}>
-                <XCircle size={20} style={{ color: "#DC2626", flexShrink: 0 }} />
+                <XCircle size={24} style={{ color: "#DC2626", flexShrink: 0 }} />
                 <div>
-                  <p style={{ fontWeight: 600, color: "#991B1B", marginBottom: 2 }}>Order cancelled</p>
+                  <p style={{ fontWeight: 700, color: "#991B1B", marginBottom: 2 }}>Order cancelled</p>
                   <p style={{ fontSize: "0.82rem", color: "#DC2626" }}>
-                    Locked funds have been released to your wallet.
+                    {order.cancellationReason || "Funds have been safely refunded to your wallet."}
                   </p>
                 </div>
               </div>
             ) : (
-              <div style={{ position: "relative", paddingLeft: 44 }}>
-                {/* Vertical background line */}
+              <div style={{ position: "relative", paddingLeft: 46 }}>
+                {/* Vertical background timeline bar */}
                 <div style={{
-                  position: "absolute", left: 15, top: 8, bottom: 8,
-                  width: 2, background: INK_HAIR,
+                  position: "absolute", left: 16, top: 12, bottom: 12,
+                  width: 3, background: INK_HAIR, borderRadius: 2
                 }} />
-                {/* Progress line */}
+                {/* Active progress fill */}
                 <div style={{
-                  position: "absolute", left: 15, top: 8,
-                  width: 2, zIndex: 1,
-                  height: `${Math.min(currentStepIndex / (statusSteps.length - 1), 1) * 100}%`,
-                  background: `linear-gradient(180deg, ${TC_SOFT}, ${TC})`,
-                  transition: "height 0.5s ease",
+                  position: "absolute", left: 16, top: 12,
+                  width: 3, zIndex: 1, borderRadius: 2,
+                  height: isDelivered ? "100%" : `${Math.min(currentStepIndex / (STATUS_STEPS.length - 1), 1) * 100}%`,
+                  background: isDelivered
+                    ? SUCCESS
+                    : `linear-gradient(180deg, ${TC_SOFT}, ${TC})`,
+                  transition: "height 0.6s ease",
                 }} />
 
-                {statusSteps.map((step, index) => {
-                  const isActive = index <= currentStepIndex;
-                  const isCurrent = index === currentStepIndex;
-                  const Icon = step.icon;
+                {STATUS_STEPS.map((step, index) => {
+                  const isPassed  = isDelivered ? true : index < currentStepIndex;
+                  const isCurrent = isDelivered ? false : index === currentStepIndex;
+                  const isActive  = isDelivered ? true : index <= currentStepIndex;
+                  const Icon      = step.icon;
 
                   return (
                     <div key={step.key} style={{
-                      position: "relative", marginBottom: index < statusSteps.length - 1 ? 28 : 0,
-                      opacity: isActive ? 1 : 0.35,
+                      position: "relative",
+                      marginBottom: index < STATUS_STEPS.length - 1 ? 26 : 0,
+                      opacity: isActive ? 1 : 0.45,
                       transition: "opacity 0.3s",
                     }}>
-                      {/* Circle */}
+                      {/* Step Circle */}
                       <div style={{
-                        position: "absolute", left: -44, top: 0,
-                        width: 32, height: 32, borderRadius: "50%",
-                        background: isActive
+                        position: "absolute", left: -46, top: 0,
+                        width: 34, height: 34, borderRadius: "50%",
+                        background: isCurrent
                           ? `linear-gradient(135deg, ${TC_SOFT}, ${TC_DEEP})`
-                          : CARD,
-                        border: `2px solid ${isActive ? TC : INK_HAIR}`,
+                          : isPassed
+                            ? SUCCESS
+                            : CARD,
+                        border: `2px solid ${isActive ? (isCurrent ? TC : SUCCESS) : INK_HAIR}`,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         zIndex: 2,
-                        boxShadow: isCurrent ? `0 0 0 4px ${TC}20` : "none",
+                        boxShadow: isCurrent ? `0 0 0 5px ${TC}25` : "none",
                         transition: "all 0.3s",
                       }}>
-                        <Icon size={14} style={{ color: isActive ? "#FFF5E6" : INK_MUTED }} />
+                        <Icon size={15} style={{ color: isActive ? "#FFF5E6" : INK_MUTED }} />
                       </div>
 
-                      {/* Label */}
+                      {/* Step Text */}
                       <div>
                         <div style={{
                           fontSize: "0.95rem",
-                          fontWeight: isCurrent ? 700 : isActive ? 600 : 400,
-                          color: isActive ? INK : INK_MUTED, marginBottom: 2,
-                        }}>{step.label}</div>
-                        {isCurrent && (
-                          <div style={{
-                            display: "inline-flex", alignItems: "center", gap: 5,
-                            marginTop: 4, padding: "3px 10px", borderRadius: 999,
-                            background: `${TC}10`, color: TC_DEEP,
-                            fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.05em",
-                            textTransform: "uppercase",
-                          }}>
+                          fontWeight: isCurrent ? 800 : isActive ? 700 : 500,
+                          color: isCurrent ? TC_DEEP : isActive ? INK : INK_MUTED,
+                          display: "flex", alignItems: "center", gap: 8
+                        }}>
+                          {step.key === "READY" && !hasDriverAssigned ? "Food Ready · Finding Rider" : step.label}
+                          {isCurrent && (
                             <span style={{
-                              width: 5, height: 5, borderRadius: "50%", background: TC,
-                              animation: "pulse 1.5s ease-in-out infinite",
-                            }} />
-                            Current
-                          </div>
-                        )}
+                              padding: "2px 8px", borderRadius: 999,
+                              background: `${TC}15`, color: TC,
+                              fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.04em",
+                              textTransform: "uppercase", display: "inline-flex", alignItems: "center", gap: 4
+                            }}>
+                              <span style={{ width: 5, height: 5, borderRadius: "50%", background: TC, animation: "pulse 1.5s infinite" }} />
+                              In Progress
+                            </span>
+                          )}
+                          {isPassed && (
+                            <span style={{ color: SUCCESS, fontSize: "0.75rem", fontWeight: 700 }}>✓ Done</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: "0.8rem", color: INK_SOFT, marginTop: 2 }}>
+                          {step.key === "READY" && !hasDriverAssigned
+                            ? "Kitchen finished cooking! Matching with nearest driver in area..."
+                            : (step.key === "READY" && hasDriverAssigned && driverName
+                                ? `${driverName} is on the way to pick up your order`
+                                : step.desc)}
+                        </div>
                       </div>
                     </div>
                   );
@@ -360,20 +879,37 @@ export default function OrderTrackingPage() {
             )}
           </div>
 
+          {/* Delivery Address & Customer Details */}
+          <div style={{
+            background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
+            padding: "22px 24px", boxShadow: "0 2px 10px rgba(28,18,8,0.03)"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: `${SAFFRON}18`, display: "flex", alignItems: "center", justifyContent: "center", color: SAFFRON }}>
+                <MapPin size={18} />
+              </div>
+              <h3 style={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Delivery Destination</h3>
+            </div>
+            <div style={{ fontSize: "0.92rem", color: INK, fontWeight: 600, marginBottom: 4 }}>
+              {order.deliveryAddress || "Adalaj / Annapurnadham Area, Gandhinagar"}
+            </div>
+            {order.specialInstructions && (
+              <div style={{ fontSize: "0.82rem", color: INK_MUTED, background: `${INK_HAIR}`, padding: "8px 12px", borderRadius: 8, marginTop: 8 }}>
+                📌 Note for driver: {order.specialInstructions}
+              </div>
+            )}
+          </div>
+
           {/* Order Items */}
           <div style={{
             background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
-            padding: 28,
+            padding: "22px 24px", boxShadow: "0 2px 10px rgba(28,18,8,0.03)"
           }}>
-            <h2 style={{
-              fontFamily: "var(--font-display)", fontSize: "1.1rem",
-              fontWeight: 500, color: INK, marginBottom: 18,
-            }}>Order Items</h2>
-
+            <h3 style={{ fontSize: "1rem", fontWeight: 700, color: INK, marginBottom: 16 }}>Items in this order</h3>
             {order.items?.map((item, i) => (
               <div key={i} style={{
-                display: "flex", justifyContent: "space-between",
-                padding: "12px 0", borderBottom: i < order.items.length - 1 ? `1px solid ${INK_HAIR}` : "none",
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "10px 0", borderBottom: i < order.items.length - 1 ? `1px solid ${INK_HAIR}` : "none",
               }}>
                 <div>
                   <div style={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>
@@ -382,183 +918,604 @@ export default function OrderTrackingPage() {
                   {item.isVeg !== undefined && (
                     <span style={{
                       fontSize: "0.7rem", color: item.isVeg ? SUCCESS : TC,
-                      marginTop: 2, display: "inline-block",
-                    }}>{item.isVeg ? "🟢 Veg" : "🔺 Non-veg"}</span>
+                      marginTop: 2, display: "inline-block", fontWeight: 600
+                    }}>{item.isVeg ? "🟢 Pure Veg" : "🔺 Non-veg"}</span>
                   )}
                 </div>
-                <div style={{
-                  fontSize: "0.9rem", fontWeight: 700, color: INK,
-                  fontFamily: "var(--font-display)",
-                }}>₹{(item.price || item.unitPrice || 0) * (item.quantity || 1)}</div>
+                <div style={{ fontSize: "0.92rem", fontWeight: 700, color: INK, fontFamily: "var(--font-display)" }}>
+                  ₹{(item.price || item.unitPrice || 0) * (item.quantity || 1)}
+                </div>
               </div>
             ))}
 
             <div style={{
-              marginTop: 16, paddingTop: 16, borderTop: `2px solid ${INK_HAIR}`,
-              display: "flex", justifyContent: "space-between",
+              marginTop: 14, paddingTop: 14, borderTop: `2px solid ${INK_HAIR}`,
+              display: "flex", justifyContent: "space-between", alignItems: "center"
             }}>
-              <span style={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Total</span>
-              <span style={{
-                fontSize: "1.1rem", fontWeight: 700, color: TC,
-                fontFamily: "var(--font-display)",
-              }}>₹{order.totalAmount}</span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>Total Paid</span>
+              <span style={{ fontSize: "1.2rem", fontWeight: 700, color: TC, fontFamily: "var(--font-display)" }}>
+                ₹{order.totalAmount}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Right column - Map or driver info */}
-        {showMap ? (
-          <div>
-            {/* Map */}
+        {/* Right Column: LIVE MAP & DRIVER INFORMATION */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          
+          {/* Map Container - ALWAYS VISIBLE */}
+          <div style={{
+            background: CARD, borderRadius: 22, border: `1px solid ${INK_HAIR}`,
+            overflow: "hidden", height: 420, position: "relative",
+            boxShadow: "0 4px 20px rgba(28,18,8,0.08)"
+          }}>
+            <MapContainer
+              key={`order-tracking-map-${activeOrderId}`}
+              center={effectiveDriverLocation || restaurantLocation}
+              zoom={14}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer
+                attribution='&copy; OpenStreetMap contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <MapUpdater center={effectiveDriverLocation || restaurantLocation} />
+
+              {/* Restaurant Marker */}
+              <Marker position={restaurantLocation} icon={restaurantIcon}>
+                <Popup>
+                  <strong>{order.restaurantName || "Restaurant"}</strong>
+                  <br />Kitchen location
+                </Popup>
+              </Marker>
+
+              {/* Driver Marker - ONLY SHOWN WHEN DRIVER IS GENUINELY ASSIGNED! */}
+              {hasDriverAssigned && effectiveDriverLocation && !isDelivered && (
+                <Marker position={effectiveDriverLocation} icon={driverIcon}>
+                  <Popup>
+                    <strong>{driverName || "Delivery Partner"}</strong>
+                    <br />
+                    {isDriverPickedUp ? "En route to your address 🛵" : "Heading to restaurant 🛵"}
+                  </Popup>
+                </Marker>
+              )}
+
+              {/* Customer Delivery Destination Marker */}
+              <Marker position={deliveryLocation} icon={homeIcon}>
+                <Popup>
+                  <strong>Your Delivery Address</strong>
+                  <br />{order.deliveryAddress || "Home / Hostel"}
+                </Popup>
+              </Marker>
+
+              {/* Road Polyline Route (Only while en route, removed once delivered) */}
+              {!isDelivered && remainingRoadRoute && remainingRoadRoute.length > 1 && (
+                <>
+                  {/* Soft Road Glow */}
+                  <Polyline
+                    positions={remainingRoadRoute}
+                    color={hasDriverAssigned ? "#3B82F6" : "#E2E8F0"}
+                    weight={hasDriverAssigned ? 9 : 6}
+                    opacity={hasDriverAssigned ? 0.3 : 0.6}
+                  />
+                  {/* Solid/Dashed Road Polyline */}
+                  <Polyline
+                    positions={remainingRoadRoute}
+                    color={hasDriverAssigned ? "#1D4ED8" : "#94A3B8"}
+                    dashArray={hasDriverAssigned ? null : "6, 8"}
+                    weight={hasDriverAssigned ? 5 : 3}
+                    opacity={0.9}
+                  />
+                </>
+              )}
+            </MapContainer>
+
+            {/* Remaining Road Distance Floating Pill */}
             <div style={{
-              background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
-              overflow: "hidden", marginBottom: 16, height: 380,
+              position: "absolute", bottom: 16, left: 16, right: 16, zIndex: 1000,
+              background: "rgba(17, 24, 39, 0.92)", backdropFilter: "blur(10px)",
+              color: "#FFF", padding: "10px 16px", borderRadius: 14,
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.15)"
             }}>
-              <MapContainer
-                center={driverLocation || restaurantLocation}
-                zoom={14}
-                style={{ height: "100%", width: "100%" }}
-              >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <MapUpdater center={driverLocation} />
-
-                <Marker position={restaurantLocation} icon={restaurantIcon}>
-                  <Popup>{order.restaurantName}</Popup>
-                </Marker>
-
-                {driverLocation && (
-                  <Marker position={driverLocation} icon={driverIcon}>
-                    <Popup>Your delivery driver</Popup>
-                  </Marker>
-                )}
-
-                <Marker position={deliveryLocation} icon={homeIcon}>
-                  <Popup>Your location</Popup>
-                </Marker>
-
-                <Polyline positions={route} color={TC} weight={3} opacity={0.7} />
-              </MapContainer>
-            </div>
-
-            {/* ETA Card */}
-            {eta && (
-              <div style={{
-                background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
-                padding: 20, marginBottom: 16,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{
-                    width: 42, height: 42, borderRadius: 12,
-                    background: `${TC}12`, display: "flex",
-                    alignItems: "center", justifyContent: "center",
-                  }}>
-                    <Clock size={20} style={{ color: TC }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: "50%",
+                  background: isDelivered ? SUCCESS : hasDriverAssigned ? "#3B82F6" : SAFFRON,
+                  boxShadow: isDelivered ? `0 0 10px ${SUCCESS}` : hasDriverAssigned ? "0 0 10px #60A5FA" : `0 0 10px ${SAFFRON}`,
+                  animation: isDelivered ? "none" : "pulse 1.5s infinite"
+                }} />
+                <div>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: isDelivered ? "#86EFAC" : hasDriverAssigned ? "#93C5FD" : "#FDE68A" }}>
+                    {isDelivered
+                      ? "Order Delivered Successfully 🎉"
+                      : !hasDriverAssigned
+                        ? (orderStatus === "READY" ? "Food Ready · Finding Delivery Partner" : "Kitchen Preparing Order 🍳")
+                        : isDriverPickedUp
+                          ? "Rider En Route to You"
+                          : "Rider to Restaurant"}
                   </div>
-                  <div>
-                    <div style={{ fontSize: "0.72rem", color: INK_MUTED, marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
-                      Estimated arrival
-                    </div>
-                    <div style={{
-                      fontSize: "1.4rem", fontWeight: 700, color: INK,
-                      fontFamily: "var(--font-display)",
-                    }}>{eta}</div>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>
+                    {isDelivered
+                      ? "Food arrived at your address"
+                      : !hasDriverAssigned
+                        ? (orderStatus === "READY" ? "Matching nearest rider in Adalaj & Gandhinagar..." : "Chef is freshly cooking your order")
+                        : remainingKm > 0
+                          ? `${remainingKm < 1 ? `${Math.round(remainingKm * 1000)} m` : `${remainingKm.toFixed(2)} km`} left on road`
+                          : "Calculating live road route..."}
                   </div>
                 </div>
               </div>
-            )}
 
-            {/* Driver Info */}
-            {driverName && (
-              <div style={{
-                background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
-                padding: 20,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              {isDelivered ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    onClick={() => setShowReviewModal(true)}
+                    style={{
+                      padding: "6px 14px", borderRadius: 999, border: "none",
+                      background: `linear-gradient(135deg, ${SAFFRON}, ${TC})`,
+                      color: "#FFF", fontSize: "0.8rem", fontWeight: 700,
+                      cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+                      boxShadow: "0 2px 10px rgba(0,0,0,0.3)"
+                    }}
+                  >
+                    <Star size={13} fill="#FFF" /> Give Review
+                  </button>
+                  <button
+                    onClick={() => navigate("/")}
+                    style={{
+                      padding: "6px 12px", borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.25)",
+                      background: "rgba(255,255,255,0.15)",
+                      color: "#FFF", fontSize: "0.8rem", fontWeight: 700,
+                      cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                    }}
+                  >
+                    🏠 Home
+                  </button>
+                </div>
+              ) : eta ? (
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.6)", textTransform: "uppercase" }}>ETA</div>
+                  <div style={{ fontSize: "0.95rem", fontWeight: 800, color: SAFFRON }}>{eta}</div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Delivery Partner / Driver Details Card */}
+          <div style={{
+            background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
+            padding: "22px 24px", boxShadow: "0 2px 10px rgba(28,18,8,0.03)"
+          }}>
+            <div style={{
+              fontSize: "0.7rem", fontWeight: 800, textTransform: "uppercase",
+              letterSpacing: "0.1em", color: INK_MUTED, marginBottom: 14,
+            }}>
+              Delivery Partner Status
+            </div>
+
+            {driverName ? (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
                   <div style={{
-                    width: 48, height: 48, borderRadius: "50%",
+                    width: 50, height: 50, borderRadius: "50%",
                     background: `linear-gradient(135deg, ${TC_SOFT}, ${TC})`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#FFF5E6", fontSize: "1.2rem", fontWeight: 700,
-                  }}>{driverName.charAt(0)}</div>
+                    color: "#FFF5E6", fontSize: "1.3rem", fontWeight: 700, flexShrink: 0,
+                    boxShadow: `0 4px 12px ${TC}35`
+                  }}>
+                    {driverName.charAt(0).toUpperCase()}
+                  </div>
                   <div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>
-                      {driverName}
-                    </div>
-                    <div style={{ fontSize: "0.75rem", color: INK_MUTED }}>
-                      Your delivery driver
+                    <div style={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>{driverName}</div>
+                    <div style={{ fontSize: "0.78rem", color: INK_MUTED, marginTop: 2 }}>
+                      Verified Delivery Partner · Hero Splendor
                     </div>
                   </div>
                 </div>
 
                 {driverPhone && (
                   <a href={`tel:${driverPhone}`} style={{
-                    width: "100%", padding: "10px", borderRadius: 12, border: "none",
-                    background: `${TC}10`, color: TC, cursor: "pointer",
-                    fontFamily: "var(--font-sans)", fontWeight: 600,
+                    width: "100%", padding: "11px 16px", borderRadius: 12, border: "none",
+                    background: `${TC}12`, color: TC_DEEP, cursor: "pointer",
+                    fontFamily: "var(--font-sans)", fontWeight: 700,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    gap: 8, fontSize: "0.88rem", textDecoration: "none",
-                  }}>
-                    <Phone size={14} /> Call driver
+                    gap: 8, fontSize: "0.9rem", textDecoration: "none",
+                    transition: "all 0.2s"
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = `${TC}20`}
+                    onMouseLeave={e => e.currentTarget.style.background = `${TC}12`}
+                  >
+                    <Phone size={15} /> Call Driver ({driverPhone})
                   </a>
                 )}
+              </div>
+            ) : (
+              <div style={{ padding: "12px 0", color: INK_SOFT, fontSize: "0.88rem", display: "flex", alignItems: "center", gap: 10 }}>
+                <Clock size={18} style={{ color: TC }} />
+                <span>Assigning nearest driver in Adalaj & Gandhinagar area...</span>
               </div>
             )}
           </div>
-        ) : (
-          /* Show driver info without map if driver assigned but no location */
-          deliveryInfo?.driverName && !showMap ? (
+
+          {/* Restaurant Contact Card */}
+          <div style={{
+            background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
+            padding: "20px 24px", boxShadow: "0 2px 10px rgba(28,18,8,0.03)",
+            display: "flex", alignItems: "center", justifyContent: "space-between"
+          }}>
             <div>
-              <div style={{
-                background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
-                padding: 24,
-              }}>
-                <div style={{
-                  fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase",
-                  letterSpacing: "0.1em", color: INK_MUTED, marginBottom: 16,
-                }}>Delivery Partner Assigned</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{
-                    width: 52, height: 52, borderRadius: "50%",
-                    background: `linear-gradient(135deg, ${TC_SOFT}, ${TC})`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#FFF5E6", fontSize: "1.4rem", fontWeight: 700,
-                  }}>{deliveryInfo.driverName.charAt(0)}</div>
-                  <div>
-                    <div style={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{deliveryInfo.driverName}</div>
-                    {deliveryInfo.estimatedDeliveryMins > 0 && (
-                      <div style={{ fontSize: "0.8rem", color: INK_MUTED, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                        <Clock size={12} /> ETA: ~{deliveryInfo.estimatedDeliveryMins} mins
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {deliveryInfo.driverPhone && (
-                  <a href={`tel:${deliveryInfo.driverPhone}`} style={{
-                    width: "100%", marginTop: 16, padding: "10px", borderRadius: 12,
-                    background: `${TC}10`, color: TC, fontWeight: 600,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    gap: 8, fontSize: "0.88rem", textDecoration: "none",
-                    fontFamily: "var(--font-sans)",
-                  }}>
-                    <Phone size={14} /> Call driver
-                  </a>
-                )}
+              <div style={{ fontSize: "0.7rem", fontWeight: 700, color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Preparing at
+              </div>
+              <div style={{ fontSize: "0.98rem", fontWeight: 700, color: INK, marginTop: 2 }}>
+                {order.restaurantName || "Restaurant"}
               </div>
             </div>
-          ) : null
-        )}
+            <button
+              onClick={() => navigate(`/restaurants/${order.restaurantId}`)}
+              style={{
+                padding: "8px 14px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
+                background: "#FFF", color: INK_SOFT, fontSize: "0.78rem", fontWeight: 600,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 5
+              }}
+            >
+              View Menu <ChevronRight size={13} />
+            </button>
+          </div>
+
+        </div>
       </div>
+
+      {/* ─── BEAUTIFUL REVIEW & RATING POPUP MODAL ─── */}
+      {showReviewModal && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(18, 12, 8, 0.72)", backdropFilter: "blur(8px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16, overflowY: "auto", animation: "fade-in 0.25s ease-out"
+        }}>
+          <div style={{
+            background: "#FFFBF2", borderRadius: 28, width: "100%", maxWidth: 640,
+            boxShadow: "0 25px 60px rgba(0,0,0,0.35)", border: "1.5px solid rgba(192, 64, 30, 0.15)",
+            overflow: "hidden", position: "relative",
+            animation: "modal-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+            maxHeight: "90vh", display: "flex", flexDirection: "column"
+          }}>
+            
+            {/* Modal Header */}
+            <div style={{
+              background: `linear-gradient(135deg, #1C1208 0%, #2F1E14 100%)`,
+              padding: "22px 28px", color: "#FFF", position: "relative",
+              borderBottom: "1px solid rgba(255,255,255,0.1)"
+            }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+                <div>
+                  <div style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "4px 10px", borderRadius: 999,
+                    background: `${SUCCESS}25`, color: "#86EFAC",
+                    fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em",
+                    marginBottom: 8
+                  }}>
+                    <CheckCircle size={13} /> Order Delivered
+                  </div>
+                  <h2 style={{
+                    fontFamily: "var(--font-display)", fontSize: "1.55rem",
+                    fontWeight: 600, color: "#FFF5E6", letterSpacing: "-0.01em", margin: 0
+                  }}>
+                    How was your experience?
+                  </h2>
+                  <p style={{ fontSize: "0.86rem", color: "rgba(255,255,255,0.7)", marginTop: 4, marginBottom: 0 }}>
+                    Rate {order?.restaurantName || "Brother's Pizzariya"} & your delivery partner to help them keep up the quality!
+                  </p>
+                </div>
+                <button
+                  onClick={handleDismissModal}
+                  title="Close modal"
+                  style={{
+                    background: "rgba(255,255,255,0.12)", border: "none", color: "#FFF",
+                    width: 34, height: 34, borderRadius: "50%", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0, transition: "background 0.2s"
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.25)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div style={{ padding: "24px 28px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 24 }}>
+              
+              {/* SECTION 1: RESTAURANT REVIEW */}
+              <div style={{
+                background: "#FFF", borderRadius: 20, padding: "20px 22px",
+                border: "1px solid rgba(28,18,8,0.08)", boxShadow: "0 2px 8px rgba(0,0,0,0.02)"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 14,
+                    background: `${TC}15`, color: TC, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "1.2rem", fontWeight: 700
+                  }}>
+                    🍽️
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.72rem", color: TC, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Restaurant Review
+                    </div>
+                    <div style={{ fontSize: "1.1rem", fontWeight: 800, color: INK }}>
+                      {order?.restaurantName || "Brother's Pizzariya"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stars selector */}
+                <div style={{ textAlign: "center", margin: "14px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 8 }}>
+                    {[1, 2, 3, 4, 5].map((s) => {
+                      const active = (restHoverRating || restRating) >= s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setRestRating(s)}
+                          onMouseEnter={() => setRestHoverRating(s)}
+                          onMouseLeave={() => setRestHoverRating(0)}
+                          style={{
+                            background: "none", border: "none", cursor: "pointer", padding: 4,
+                            transform: active ? "scale(1.15)" : "scale(1)",
+                            transition: "transform 0.15s ease"
+                          }}
+                        >
+                          <Star
+                            size={34}
+                            style={{
+                              color: active ? "#F59E0B" : "rgba(28,18,8,0.2)",
+                              fill: active ? "#F59E0B" : "transparent",
+                              transition: "all 0.15s ease"
+                            }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 700, color: TC_DEEP }}>
+                    {restRating === 5 && "⭐⭐⭐⭐⭐ Exceptional food & delicious taste!"}
+                    {restRating === 4 && "⭐⭐⭐⭐ Great food, thoroughly enjoyed!"}
+                    {restRating === 3 && "⭐⭐⭐ Average, satisfied basic expectations"}
+                    {restRating === 2 && "⭐⭐ Below expectations, needs improvement"}
+                    {restRating === 1 && "⭐ Disappointed with meal quality"}
+                  </div>
+                </div>
+
+                {/* Restaurant compliment tags */}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: INK_MUTED, marginBottom: 8, textTransform: "uppercase" }}>
+                    What did you like the most?
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {[
+                      "🍕 Super Delicious",
+                      "♨️ Hot & Fresh",
+                      "📦 Great Packaging",
+                      "🍱 Generous Portions",
+                      "⚡ Fast Prep",
+                      "🌿 Fresh Ingredients"
+                    ].map(tag => {
+                      const isSel = restTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleRestTag(tag)}
+                          style={{
+                            padding: "6px 12px", borderRadius: 999, border: `1px solid ${isSel ? TC : INK_HAIR}`,
+                            background: isSel ? `${TC}15` : CARD,
+                            color: isSel ? TC_DEEP : INK_SOFT,
+                            fontSize: "0.78rem", fontWeight: isSel ? 700 : 500,
+                            cursor: "pointer", transition: "all 0.15s"
+                          }}
+                        >
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Comment textarea */}
+                <div style={{ marginTop: 14 }}>
+                  <textarea
+                    rows={2}
+                    value={restComment}
+                    onChange={e => setRestComment(e.target.value)}
+                    placeholder="Tell us what you liked about the taste, packaging or freshness (optional)..."
+                    style={{
+                      width: "100%", padding: "10px 14px", borderRadius: 12,
+                      border: `1px solid ${INK_HAIR}`, background: "#FAFAFA",
+                      fontSize: "0.85rem", fontFamily: "var(--font-sans)", color: INK,
+                      resize: "none", boxSizing: "border-box", outline: "none"
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* SECTION 2: DELIVERY PARTNER REVIEW */}
+              <div style={{
+                background: "#FFF", borderRadius: 20, padding: "20px 22px",
+                border: "1px solid rgba(28,18,8,0.08)", boxShadow: "0 2px 8px rgba(0,0,0,0.02)"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 14,
+                    background: `${SUCCESS}15`, color: SUCCESS, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "1.2rem", fontWeight: 700
+                  }}>
+                    🛵
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.72rem", color: SUCCESS, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Delivery Partner Rating
+                    </div>
+                    <div style={{ fontSize: "1.1rem", fontWeight: 800, color: INK }}>
+                      {driverName || "Dhruhit (Verified Rider)"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stars selector */}
+                <div style={{ textAlign: "center", margin: "14px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 8 }}>
+                    {[1, 2, 3, 4, 5].map((s) => {
+                      const active = (driverHoverRating || driverRating) >= s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setDriverRating(s)}
+                          onMouseEnter={() => setDriverHoverRating(s)}
+                          onMouseLeave={() => setDriverHoverRating(0)}
+                          style={{
+                            background: "none", border: "none", cursor: "pointer", padding: 4,
+                            transform: active ? "scale(1.15)" : "scale(1)",
+                            transition: "transform 0.15s ease"
+                          }}
+                        >
+                          <Star
+                            size={34}
+                            style={{
+                              color: active ? SUCCESS : "rgba(28,18,8,0.2)",
+                              fill: active ? SUCCESS : "transparent",
+                              transition: "all 0.15s ease"
+                            }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 700, color: SUCCESS }}>
+                    {driverRating === 5 && "⭐⭐⭐⭐⭐ Lightning fast & very courteous!"}
+                    {driverRating === 4 && "⭐⭐⭐⭐ Good & polite delivery"}
+                    {driverRating === 3 && "⭐⭐⭐ Delivered safely on time"}
+                    {driverRating === 2 && "⭐⭐ Took longer than anticipated"}
+                    {driverRating === 1 && "⭐ Poor delivery service"}
+                  </div>
+                </div>
+
+                {/* Driver compliment tags */}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: INK_MUTED, marginBottom: 8, textTransform: "uppercase" }}>
+                    Compliments for rider
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {[
+                      "⚡ Lightning Fast",
+                      "😊 Polite & Courteous",
+                      "🛍️ Handled With Care",
+                      "📍 Followed Instructions",
+                      "📞 Good Communication",
+                      "🧼 Hygienic & Clean"
+                    ].map(tag => {
+                      const isSel = driverTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleDriverTag(tag)}
+                          style={{
+                            padding: "6px 12px", borderRadius: 999, border: `1px solid ${isSel ? SUCCESS : INK_HAIR}`,
+                            background: isSel ? `${SUCCESS}15` : CARD,
+                            color: isSel ? SUCCESS : INK_SOFT,
+                            fontSize: "0.78rem", fontWeight: isSel ? 700 : 500,
+                            cursor: "pointer", transition: "all 0.15s"
+                          }}
+                        >
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Driver Comment textarea */}
+                <div style={{ marginTop: 14 }}>
+                  <textarea
+                    rows={2}
+                    value={driverComment}
+                    onChange={e => setDriverComment(e.target.value)}
+                    placeholder="Add a friendly note for your rider (optional)..."
+                    style={{
+                      width: "100%", padding: "10px 14px", borderRadius: 12,
+                      border: `1px solid ${INK_HAIR}`, background: "#FAFAFA",
+                      fontSize: "0.85rem", fontFamily: "var(--font-sans)", color: INK,
+                      resize: "none", boxSizing: "border-box", outline: "none"
+                    }}
+                  />
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div style={{
+              padding: "18px 28px", background: CARD, borderTop: `1px solid ${INK_HAIR}`,
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14
+            }}>
+              <button
+                type="button"
+                onClick={handleDismissModal}
+                style={{
+                  padding: "11px 20px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
+                  background: "transparent", color: INK_MUTED, fontSize: "0.85rem",
+                  fontFamily: "var(--font-sans)", fontWeight: 600, cursor: "pointer"
+                }}
+              >
+                Skip & Go to Home
+              </button>
+
+              <button
+                type="button"
+                onClick={handleReviewSubmit}
+                disabled={submittingReview}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "12px 28px", borderRadius: 999, border: "none",
+                  background: `linear-gradient(135deg, ${TC_SOFT}, ${TC})`,
+                  color: "#FFF5E6", fontSize: "0.92rem", fontWeight: 700,
+                  fontFamily: "var(--font-sans)", cursor: submittingReview ? "not-allowed" : "pointer",
+                  boxShadow: `0 6px 20px ${TC}40`, opacity: submittingReview ? 0.7 : 1
+                }}
+              >
+                {submittingReview ? (
+                  <>
+                    <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                    Submitting & Redirecting...
+                  </>
+                ) : (
+                  <>
+                    <Send size={15} /> Submit Review & Go to Home ⭐
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes fade-up { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fade-in { from{opacity:0} to{opacity:1} }
+        @keyframes modal-pop { from{opacity:0;transform:scale(0.92) translateY(12px)} to{opacity:1;transform:scale(1) translateY(0)} }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @media (max-width: 768px) {
+        @media (max-width: 860px) {
           .track-grid {
             grid-template-columns: 1fr !important;
-          }
-          .track-grid .leaflet-container {
-            height: 260px !important;
           }
         }
       `}</style>

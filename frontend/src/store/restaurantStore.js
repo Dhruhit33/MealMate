@@ -20,12 +20,23 @@ export const useRestaurantStore = create((set) => ({
     } catch { set({ loading: false }); }
   },
 
-  // BUG FIX #3: backend expects `lat` and `lng` not `latitude`/`longitude`
-  fetchNearby: async (lat = 28.6139, lng = 77.2090) => {
+  currentLocation: { name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, radius: 25 },
+
+  setLocation: (name, lat, lng, radius = 25) => {
+    set({ currentLocation: { name, lat, lng, radius } });
+  },
+
+  // Fetch restaurants within 25km radius (defaults to Gujarat / Adalaj 23.1644, 72.5855)
+  fetchNearby: async (lat = 23.1644, lng = 72.5855, radius = 25) => {
     try {
-      const res = await api.get("/restaurants/nearby", { params: { lat, lng } });
-      set({ nearby: Array.isArray(res.data) ? res.data : [] });
-    } catch {}
+      const res = await api.get("/restaurants/nearby", { params: { lat, lng, radius } });
+      const list = Array.isArray(res.data) ? res.data : [];
+      set({ nearby: list });
+      return list;
+    } catch {
+      set({ nearby: [] });
+      return [];
+    }
   },
 
   searchRestaurants: async (query) => {

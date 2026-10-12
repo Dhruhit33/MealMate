@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShoppingBag, User, LogOut, MapPin, ChevronDown, Search, X, Star, Clock, Wallet, Menu } from "lucide-react";
+import { ShoppingBag, User, LogOut, MapPin, ChevronDown, Search, X, Star, Clock, Wallet, Menu, Navigation } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import { useCartStore } from "../store/cartStore";
 import { useRestaurantStore } from "../store/restaurantStore";
@@ -19,7 +19,13 @@ const CURRY = "#B5761A";
 
 export default function Navbar() {
   const { user, logout } = useAuthStore();
-  const itemCount = useCartStore((s) => s.items.reduce((sum, i) => sum + i.quantity, 0));
+  const itemCount = useCartStore((s) => s.items.reduce((sum, i) => sum + (i.quantity || 1), 0));
+  const fetchCart = useCartStore((s) => s.fetchCart);
+
+  useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
+
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -109,10 +115,11 @@ export default function Navbar() {
   
 
   const NAV_LINKS = [
-    { to: "/profile",   icon: User,        label: "My Profile"  },
-    { to: "/addresses", icon: MapPin,      label: "Addresses"   },
-    { to: "/orders",    icon: ShoppingBag, label: "My Orders"   },
-    { to: "/wallet",    icon: Wallet,      label: "Wallet"      },
+    { to: "/profile",      icon: User,        label: "My Profile"       },
+    { to: "/orders/track", icon: Navigation,  label: "Track Live Order" },
+    { to: "/orders",       icon: ShoppingBag, label: "My Orders"        },
+    { to: "/addresses",    icon: MapPin,      label: "Addresses"        },
+    { to: "/wallet",       icon: Wallet,      label: "Wallet"           },
   ];
 
   return (

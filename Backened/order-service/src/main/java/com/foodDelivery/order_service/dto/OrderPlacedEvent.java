@@ -22,6 +22,11 @@ public class OrderPlacedEvent {
     private String restaurantName;
     private BigDecimal totalAmount;
     private String deliveryAddress;
+    private BigDecimal pickupLatitude;
+    private BigDecimal pickupLongitude;
+    private BigDecimal dropoffLatitude;
+    private BigDecimal dropoffLongitude;
     private String specialInstructions;
+    private String userPhone;
     private LocalDateTime placedAt;
 }

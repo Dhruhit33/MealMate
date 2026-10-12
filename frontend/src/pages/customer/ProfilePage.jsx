@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   User, Mail, Phone, Shield, Pencil, Check, X, Loader2,
   ShoppingBag, Wallet, MapPin, ChevronRight, Clock,
-  CheckCircle, XCircle, Bike, ArrowUpRight, ArrowRight
+  CheckCircle, XCircle, Bike, ArrowUpRight, ArrowRight, ArrowLeft
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../../store/authStore";
@@ -98,6 +98,40 @@ export default function ProfilePage() {
 
   return (
     <div style={{ maxWidth: 840, margin: "0 auto", animation: "fade-up 0.4s ease-out" }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 16px",
+          borderRadius: 999,
+          border: `1px solid ${INK_HAIR}`,
+          background: CARD,
+          color: INK_SOFT,
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
+          fontFamily: "var(--font-sans)",
+          transition: "all 0.2s ease",
+          boxShadow: "0 1px 3px rgba(43,29,18,0.04)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = TERRACOTTA_SOFT;
+          e.currentTarget.style.color = TERRACOTTA_DEEP;
+          e.currentTarget.style.transform = "translateX(-3px)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = INK_HAIR;
+          e.currentTarget.style.color = INK_SOFT;
+          e.currentTarget.style.transform = "translateX(0)";
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
       {/* Header Banner */}
       <div style={{
         background: `linear-gradient(135deg, ${CARD} 0%, #F5E8D0 100%)`,

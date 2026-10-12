@@ -37,13 +37,32 @@ export default function LoginPage() {
 
   // If already logged in, redirect to expected dashboard
   useEffect(() => {
-    if (token && user) {
-      const role = normaliseRole(user.role);
+    let effectiveToken = token;
+    let effectiveUser = user;
+    if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem("foodrush-auth");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.state?.token) {
+            effectiveToken = parsed.state.token;
+            effectiveUser = parsed.state.user || effectiveUser;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (effectiveToken && effectiveUser) {
+      if (from && from !== "/login" && from !== "/register" && from !== "/verify-otp") {
+        navigate(from, { replace: true });
+        return;
+      }
+      const role = normaliseRole(effectiveUser.role);
       if (role === "DRIVER") navigate("/driver", { replace: true });
       else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
       else navigate("/", { replace: true });
     }
-  }, [token, user, navigate]);
+  }, [token, user, navigate, from]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -190,52 +209,110 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit}>
               {/* Email */}
-              <div style={{ marginBottom:18, position:"relative" }}>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  onFocus={() => setFocused("email")} onBlur={() => setFocused(null)}
-                  placeholder=" " id="login-email"
-                  style={{ width:"100%", padding:"22px 16px 10px",
-                    background: focused === "email" ? FIELD_FOCUS : FIELD,
-                    border:`1.5px solid ${focused === "email" ? TERRACOTTA : "transparent"}`,
-                    borderRadius:12, color:INK, fontSize:"0.95rem",
-                    fontFamily:"var(--font-sans)", outline:"none", transition:"all 0.25s",
-                    boxShadow: focused === "email" ? `0 0 0 4px ${TERRACOTTA}12` : "none" }} />
-                <label htmlFor="login-email" style={{ position:"absolute", left:16,
-                  top: (focused === "email" || email) ? 8 : 18,
-                  fontSize: (focused === "email" || email) ? "0.7rem" : "0.95rem",
-                  color: focused === "email" ? TERRACOTTA : INK_MUTED,
-                  textTransform: (focused === "email" || email) ? "uppercase" : "none",
-                  letterSpacing: (focused === "email" || email) ? "0.1em" : "0",
-                  fontWeight: (focused === "email" || email) ? 600 : 400,
-                  pointerEvents:"none", transition:"all 0.2s ease" }}>Email address</label>
+              <div style={{ marginBottom: 18 }}>
+                <label htmlFor="login-email" style={{
+                  display: "block",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: focused === "email" ? TERRACOTTA : INK_SOFT,
+                  marginBottom: 8,
+                  transition: "color 0.2s ease"
+                }}>
+                  Email address
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="email"
+                    id="login-email"
+                    name="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    onFocus={() => setFocused("email")}
+                    onBlur={() => setFocused(null)}
+                    placeholder="Enter your email"
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "14px 16px",
+                      background: focused === "email" ? FIELD_FOCUS : FIELD,
+                      border: `1.5px solid ${focused === "email" ? TERRACOTTA : "transparent"}`,
+                      borderRadius: 12,
+                      color: INK,
+                      fontSize: "0.95rem",
+                      fontFamily: "var(--font-sans)",
+                      outline: "none",
+                      transition: "all 0.25s",
+                      boxShadow: focused === "email" ? `0 0 0 4px ${TERRACOTTA}12` : "none"
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Password */}
-              <div style={{ marginBottom:28, position:"relative" }}>
-                <input type={showPass ? "text" : "password"} value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  onFocus={() => setFocused("pass")} onBlur={() => setFocused(null)}
-                  placeholder=" " id="login-pass"
-                  style={{ width:"100%", padding:"22px 52px 10px 16px",
-                    background: focused === "pass" ? FIELD_FOCUS : FIELD,
-                    border:`1.5px solid ${focused === "pass" ? TERRACOTTA : "transparent"}`,
-                    borderRadius:12, color:INK, fontSize:"0.95rem",
-                    fontFamily:"var(--font-sans)", outline:"none", transition:"all 0.25s",
-                    boxShadow: focused === "pass" ? `0 0 0 4px ${TERRACOTTA}12` : "none" }} />
-                <label htmlFor="login-pass" style={{ position:"absolute", left:16,
-                  top: (focused === "pass" || password) ? 8 : 18,
-                  fontSize: (focused === "pass" || password) ? "0.7rem" : "0.95rem",
-                  color: focused === "pass" ? TERRACOTTA : INK_MUTED,
-                  textTransform: (focused === "pass" || password) ? "uppercase" : "none",
-                  letterSpacing: (focused === "pass" || password) ? "0.1em" : "0",
-                  fontWeight: (focused === "pass" || password) ? 600 : 400,
-                  pointerEvents:"none", transition:"all 0.2s ease" }}>Password</label>
-                <button type="button" onClick={() => setShowPass(!showPass)}
-                  style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)",
-                    background:"none", border:"none", cursor:"pointer", color:INK_MUTED, padding:6,
-                    display:"flex", borderRadius:6 }}>
-                  {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
+              <div style={{ marginBottom: 26 }}>
+                <label htmlFor="login-pass" style={{
+                  display: "block",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: focused === "pass" ? TERRACOTTA : INK_SOFT,
+                  marginBottom: 8,
+                  transition: "color 0.2s ease"
+                }}>
+                  Password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showPass ? "text" : "password"}
+                    id="login-pass"
+                    name="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    onFocus={() => setFocused("pass")}
+                    onBlur={() => setFocused(null)}
+                    placeholder="Enter your password"
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "14px 48px 14px 16px",
+                      background: focused === "pass" ? FIELD_FOCUS : FIELD,
+                      border: `1.5px solid ${focused === "pass" ? TERRACOTTA : "transparent"}`,
+                      borderRadius: 12,
+                      color: INK,
+                      fontSize: "0.95rem",
+                      fontFamily: "var(--font-sans)",
+                      outline: "none",
+                      transition: "all 0.25s",
+                      boxShadow: focused === "pass" ? `0 0 0 4px ${TERRACOTTA}12` : "none"
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass(!showPass)}
+                    tabIndex={-1}
+                    aria-label={showPass ? "Hide password" : "Show password"}
+                    style={{
+                      position: "absolute",
+                      right: 14,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: INK_MUTED,
+                      padding: 6,
+                      display: "flex",
+                      borderRadius: 6
+                    }}
+                  >
+                    {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               <button type="submit" disabled={loading} style={{
@@ -270,6 +347,14 @@ export default function LoginPage() {
         @keyframes fade-up { from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)} }
         @keyframes drift { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,-30px)} }
         @keyframes pulse-dot { 0%,100%{opacity:1;box-shadow:0 0 0 0 ${TERRACOTTA}99} 50%{opacity:.7;box-shadow:0 0 0 6px transparent} }
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 1000px ${FIELD} inset !important;
+          -webkit-text-fill-color: ${INK} !important;
+          transition: background-color 5000s ease-in-out 0s;
+        }
         @media (max-width:900px) {
           .login-grid { grid-template-columns:1fr!important; gap:40px!important; padding:20px 20px 40px!important; min-height:auto!important; }
         }

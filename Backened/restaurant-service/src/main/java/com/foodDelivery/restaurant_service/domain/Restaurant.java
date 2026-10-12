@@ -68,7 +68,7 @@ public class Restaurant {
     private LocalTime openingTime;
     private LocalTime closingTime;
 
-    @Column(length = 500)
+    @Column(columnDefinition = "LONGTEXT")
     private String imageUrl;
 
     @Column(length = 15)

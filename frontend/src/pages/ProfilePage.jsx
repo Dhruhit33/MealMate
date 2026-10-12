@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { User, Mail, Phone, Shield, Pencil, Check, X, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { User, Mail, Phone, Shield, Pencil, Check, X, Loader2, ArrowLeft } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store/authStore";
 
 export default function ProfilePage() {
+  const navigate = useNavigate();
   const { user, fetchProfile, updateProfile } = useAuthStore();
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -30,6 +32,27 @@ export default function ProfilePage() {
 
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", animation: "fade-up 0.4s ease-out" }}>
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 16px",
+          borderRadius: 999,
+          border: "1px solid rgba(43,29,18,0.08)",
+          background: "#FFF9EC",
+          color: "rgba(43,29,18,0.62)",
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
+          fontFamily: "var(--font-sans)",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
       <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: 32 }}>My Profile</h1>
 
       <div style={{

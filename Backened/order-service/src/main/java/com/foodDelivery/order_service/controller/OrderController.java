@@ -24,11 +24,13 @@ public class OrderController {
 
     @PostMapping("/place")
     public ResponseEntity<OrderResponse> placeOrder(
-            @RequestHeader("Authorization") String token,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "X-User-Email", required = false) String xEmail,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @Valid @RequestBody PlaceOrderRequest request) {
 
-        String userId = extractUserId(token);
-        String email = extractEmail(token);
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
+        String email = (xEmail != null && !xEmail.isBlank()) ? xEmail : extractEmail(token);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(orderService.placeOrder(userId, email, request));
     }
@@ -43,9 +45,10 @@ public class OrderController {
 
     @GetMapping("/my")
     public ResponseEntity<List<OrderResponse>> getMyOrders(
-            @RequestHeader("Authorization") String token) {
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token) {
 
-        String userId = extractUserId(token);
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
         return ResponseEntity.ok(orderService.getMyOrders(userId));
     }
 

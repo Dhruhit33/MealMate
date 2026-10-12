@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShoppingBag, ChevronRight, Loader2, Clock, CheckCircle, XCircle, Bike, Navigation } from "lucide-react";
+import { ShoppingBag, ChevronRight, Loader2, Clock, CheckCircle, XCircle, Bike, Navigation, ArrowLeft } from "lucide-react";
 import { useOrderStore } from "../../store/orderStore";
 
 const INK = "#2B1D12";
@@ -72,6 +72,40 @@ export default function OrdersPage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", animation: "fade-up 0.4s ease-out" }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate("/")}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 16px",
+          borderRadius: 999,
+          border: `1px solid ${INK_HAIR}`,
+          background: CARD,
+          color: INK_SOFT,
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
+          fontFamily: "var(--font-sans)",
+          transition: "all 0.2s ease",
+          boxShadow: "0 1px 3px rgba(43,29,18,0.04)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = TERRACOTTA_SOFT;
+          e.currentTarget.style.color = TERRACOTTA_DEEP;
+          e.currentTarget.style.transform = "translateX(-3px)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = INK_HAIR;
+          e.currentTarget.style.color = INK_SOFT;
+          e.currentTarget.style.transform = "translateX(0)";
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
         <div>
           <h1 style={{
@@ -159,10 +193,19 @@ export default function OrdersPage() {
 }
 
 function OrderCard({ order, index, onClick }) {
-  const navigate = useNavigate();
-  const date = order.createdAt
-    ? new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-    : null;
+  const parseSafeDate = (val) => {
+    if (!val) return "Today";
+    if (Array.isArray(val)) {
+      const d = new Date(val[0], (val[1] || 1) - 1, val[2] || 1, val[3] || 0, val[4] || 0);
+      return !isNaN(d.getTime()) ? d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Today";
+    }
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    }
+    return "Today";
+  };
+  const date = parseSafeDate(order.createdAt || order.placedAt || order.created_at);
   const isActive = !["DELIVERED", "CANCELLED"].includes(order.status);
 
   return (
@@ -197,25 +240,34 @@ function OrderCard({ order, index, onClick }) {
         </div>
       </div>
 
-      {isActive && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/orders/${order.orderId}/track`);
-          }}
-          style={{
-            padding: "7px 14px", borderRadius: 999, border: "none",
-            background: `linear-gradient(135deg, ${TERRACOTTA_SOFT}, ${TERRACOTTA_DEEP})`,
-            color: "#FFF5E6", fontSize: "0.75rem", fontWeight: 700,
-            fontFamily: "var(--font-sans)", cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 5,
-            boxShadow: `0 3px 10px ${TERRACOTTA}40`,
-            flexShrink: 0, whiteSpace: "nowrap",
-          }}
-        >
-          <Navigation size={11} /> Track
-        </button>
-      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/orders/${order.orderId}/track`);
+        }}
+        style={{
+          padding: "7px 14px", borderRadius: 999,
+          border: isActive ? "none" : `1px solid ${TERRACOTTA}40`,
+          background: isActive
+            ? `linear-gradient(135deg, ${TERRACOTTA_SOFT}, ${TERRACOTTA_DEEP})`
+            : `${TERRACOTTA}0A`,
+          color: isActive ? "#FFF5E6" : TERRACOTTA_DEEP,
+          fontSize: "0.75rem", fontWeight: 700,
+          fontFamily: "var(--font-sans)", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 5,
+          boxShadow: isActive ? `0 3px 10px ${TERRACOTTA}40` : "none",
+          flexShrink: 0, whiteSpace: "nowrap",
+          transition: "all 0.2s"
+        }}
+        onMouseEnter={(e) => {
+          if (!isActive) e.currentTarget.style.background = `${TERRACOTTA}18`;
+        }}
+        onMouseLeave={(e) => {
+          if (!isActive) e.currentTarget.style.background = `${TERRACOTTA}0A`;
+        }}
+      >
+        <Navigation size={11} /> {isActive ? "Live Track" : "View Route"}
+      </button>
 
       <ChevronRight size={16} style={{ color: INK_MUTED, flexShrink: 0 }} />
     </div>

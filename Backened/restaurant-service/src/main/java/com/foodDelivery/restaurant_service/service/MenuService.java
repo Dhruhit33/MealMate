@@ -32,9 +32,8 @@ public class MenuService {
 
         Category category =null ;
 
-        if (request.getCategoryId()!=null){
-            category=categoryRepo.findById(request.getCategoryId())
-                    .orElseThrow(()-> new RuntimeException("Category not found "));
+        if (request.getCategoryId() != null && !request.getCategoryId().trim().isEmpty()) {
+            category = categoryRepo.findById(request.getCategoryId()).orElse(null);
         }
         MenuItem item = MenuItem.builder()
                 .restaurant(restaurant)
@@ -66,10 +65,13 @@ public class MenuService {
         if(request.getIsVeg()!=null ) item.setIsVeg(request.getIsVeg());
         if (request.getIsBestseller()!=null ) item.setIsBestseller(request.getIsBestseller());
 
-        if (request.getCategoryId()!=null){
-            Category category = categoryRepo.findById(request.getCategoryId())
-                    .orElseThrow(()-> new RuntimeException("Category not found"));
-            item.setCategory(category);
+        if (request.getCategoryId() != null) {
+            if (!request.getCategoryId().trim().isEmpty()) {
+                Category category = categoryRepo.findById(request.getCategoryId()).orElse(null);
+                item.setCategory(category);
+            } else {
+                item.setCategory(null);
+            }
         }
         item = menuItemRepo.save(item);
         return MenuItemResponse.fromEntity(item);

@@ -84,8 +84,9 @@ public class DeliveryService {
     public  DriverResponse goOffline(String userId ){
         Driver driver = driverRepo.findByUserId(userId)
                 .orElseThrow(()-> new IllegalStateException("Driver profile not found "));
-        if(driver.getStatus()==DriverStatus.ASSIGNED || driver.getStatus()==DriverStatus.PICKED_UP){
-            throw  new IllegalStateException("Cannot go offline while on an active delivery");
+        boolean hasActiveDelivery = deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isPresent();
+        if (hasActiveDelivery) {
+            throw new IllegalStateException("Cannot go offline while on an active delivery");
         }
         driver.setStatus(DriverStatus.OFFLINE);
         driverRepo.save(driver);
@@ -98,9 +99,23 @@ public class DeliveryService {
     }
 
     //Get driver profile by userId
+    @Transactional
     public DriverResponse getDriverProfile(String userId ){
         Driver driver = driverRepo.findByUserId(userId)
                 .orElseThrow(()->new IllegalStateException("Driver profile not found"));
+        // Auto-heal driver status if DB says ASSIGNED or PICKED_UP but no active delivery exists
+        if ((driver.getStatus() == DriverStatus.ASSIGNED || driver.getStatus() == DriverStatus.PICKED_UP)
+                && deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isEmpty()) {
+            driver.setStatus(DriverStatus.ONLINE);
+            driverRepo.save(driver);
+            if (driver.getCurrentLatitude() != null && driver.getCurrentLongitude() != null) {
+                driverMatchingService.updateDriverLocation(
+                        driver.getDriverId(),
+                        driver.getCurrentLatitude().doubleValue(),
+                        driver.getCurrentLongitude().doubleValue()
+                );
+            }
+        }
         return toDriverResponse(driver);
     }
 
@@ -117,6 +132,48 @@ public class DeliveryService {
 
         }
 
+        java.util.Map restDetails = fetchRestaurantDetails(event.getRestaurantId());
+        String restAddress = "shavat city,balapir,adalaj";
+        String restPhone = "9408534410";
+        if (restDetails != null) {
+            if (restDetails.get("address") != null && !restDetails.get("address").toString().isBlank()) {
+                restAddress = restDetails.get("address").toString();
+            }
+            if (restDetails.get("phone") != null && !restDetails.get("phone").toString().isBlank()) {
+                restPhone = restDetails.get("phone").toString();
+            }
+        }
+
+        BigDecimal pickupLat = event.getPickupLatitude();
+        BigDecimal pickupLng = event.getPickupLongitude();
+        if (pickupLat == null || pickupLng == null || pickupLat.doubleValue() == 0) {
+            if (restDetails != null && restDetails.get("latitude") != null && restDetails.get("longitude") != null) {
+                pickupLat = new BigDecimal(restDetails.get("latitude").toString());
+                pickupLng = new BigDecimal(restDetails.get("longitude").toString());
+            } else {
+                pickupLat = BigDecimal.valueOf(23.1644); // Balapir / Adalaj default
+                pickupLng = BigDecimal.valueOf(72.5855);
+            }
+        }
+
+        BigDecimal dropoffLat = event.getDropoffLatitude();
+        BigDecimal dropoffLng = event.getDropoffLongitude();
+        if (dropoffLat == null || dropoffLng == null || dropoffLat.doubleValue() == 0) {
+            if (event.getDeliveryAddress() != null) {
+                String addrLower = event.getDeliveryAddress().toLowerCase();
+                if (addrLower.contains("nirma") || addrLower.contains("tragad") || addrLower.contains("sg highway")) {
+                    dropoffLat = BigDecimal.valueOf(23.12639030);
+                    dropoffLng = BigDecimal.valueOf(72.54000890);
+                } else {
+                    dropoffLat = BigDecimal.valueOf(23.1288);
+                    dropoffLng = BigDecimal.valueOf(72.5448);
+                }
+            } else {
+                dropoffLat = BigDecimal.valueOf(23.1288);
+                dropoffLng = BigDecimal.valueOf(72.5448);
+            }
+        }
+
         Delivery delivery = Delivery.builder()
                 .deliveryId(UUID.randomUUID().toString())
                 .orderId(event.getOrderId())
@@ -125,12 +182,20 @@ public class DeliveryService {
                 .restaurantName(event.getRestaurantName())
                 .status(DeliveryStatus.PENDING)
                 .dropoffAddress(event.getDeliveryAddress())
+                .pickupAddress(restAddress)
+                .restaurantPhone(restPhone)
+                .pickupLatitude(pickupLat)
+                .pickupLongitude(pickupLng)
+                .dropoffLatitude(dropoffLat)
+                .dropoffLongitude(dropoffLng)
                 .specialInstructions(event.getSpecialInstructions())
                 .userEmail(event.getUserEmail())
                 .userName(event.getUserName())
+                .userPhone(event.getUserPhone())
                 .build();
         delivery=deliveryRepo.save(delivery);
-        log.info("Delivery created: deliveryId={}, orderId={}", delivery.getDeliveryId(), event.getOrderId());
+        log.info("Delivery created: deliveryId={}, orderId={}, rest=[{}, {}], pickup=[{}, {}], dropoff=[{}, {}]",
+                delivery.getDeliveryId(), event.getOrderId(), restAddress, restPhone, pickupLat, pickupLng, dropoffLat, dropoffLng);
 
         attemptDriverAssignment(delivery);
         return delivery;
@@ -147,19 +212,17 @@ public class DeliveryService {
         }
         //use res location for matching (if available )
         double restaurantLat = delivery.getPickupLatitude() != null
-                ? delivery.getPickupLatitude()
-                .doubleValue() : 23.2599;
+                ? delivery.getPickupLatitude().doubleValue() : 23.1644;
         double restaurantLng = delivery.getPickupLongitude() != null
-                ? delivery.getPickupLongitude().doubleValue() : 77.4126;
+                ? delivery.getPickupLongitude().doubleValue() : 72.5855;
         Optional<Driver> nearestDriver  = driverMatchingService.findNearestDriver(restaurantLat,restaurantLng);
         if (nearestDriver.isEmpty()){
             log.warn("No available driver for delivery {}, will retry", delivery.getDeliveryId());
             return;
         }
         Driver driver = nearestDriver.get();
-        
-        // Only assign if driver has no active delivery
-        if (driver.getStatus() == DriverStatus.ONLINE && 
+        // Only assign if driver has no active delivery and is not OFFLINE
+        if (driver.getStatus() != DriverStatus.OFFLINE && 
             deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isEmpty()) {
             assignDriver(delivery, driver, restaurantLat, restaurantLng);
         } else {
@@ -236,6 +299,41 @@ public class DeliveryService {
                 .build());
 
         return toDeliveryResponse(delivery);
+    }
+
+    // Driver declines / rejects the assigned delivery request
+    @Transactional
+    public DeliveryResponse declineDelivery(String driverId) {
+        Delivery delivery = deliveryRepo.findActiveDeliveryByDriverId(driverId)
+                .orElseThrow(() -> new IllegalStateException("No active assigned delivery found for this driver"));
+
+        if (delivery.getStatus() != DeliveryStatus.DRIVER_ASSIGNED) {
+            throw new IllegalStateException("Cannot decline delivery with status: " + delivery.getStatus());
+        }
+
+        // Release driver back to ONLINE
+        Driver driver = driverRepo.findById(driverId)
+                .orElseThrow(() -> new IllegalStateException("Driver not found"));
+        driver.setStatus(DriverStatus.ONLINE);
+        driverRepo.save(driver);
+
+        if (driver.getCurrentLatitude() != null && driver.getCurrentLongitude() != null) {
+            driverMatchingService.updateDriverLocation(
+                    driver.getDriverId(),
+                    driver.getCurrentLatitude().doubleValue(),
+                    driver.getCurrentLongitude().doubleValue()
+            );
+        }
+
+        // Reset delivery back to PENDING so another driver can be assigned
+        delivery.setDriverId(null);
+        delivery.setStatus(DeliveryStatus.PENDING);
+        delivery.setAssignedAt(null);
+        Delivery savedDelivery = deliveryRepo.save(delivery);
+
+        log.info("Driver {} declined delivery {}. Reset to PENDING for rematching.", driverId, delivery.getDeliveryId());
+
+        return toDeliveryResponse(savedDelivery);
     }
 
     //Driver complete the delivery
@@ -329,10 +427,27 @@ public class DeliveryService {
 
     }
     //get active delivery for a driver (returns null if none)
+    @Transactional
     public  DeliveryResponse getActiveDeliveryForDriver(String driverId ){
-        return deliveryRepo.findActiveDeliveryByDriverId(driverId)
-                .map(this::toDeliveryResponse)
-                .orElse(null);
+        Optional<Delivery> active = deliveryRepo.findActiveDeliveryByDriverId(driverId);
+        if (active.isEmpty()) {
+            // Auto-heal driver status in DB if left as ASSIGNED or PICKED_UP
+            driverRepo.findById(driverId).ifPresent(d -> {
+                if (d.getStatus() == DriverStatus.ASSIGNED || d.getStatus() == DriverStatus.PICKED_UP) {
+                    d.setStatus(DriverStatus.ONLINE);
+                    driverRepo.save(d);
+                    if (d.getCurrentLatitude() != null && d.getCurrentLongitude() != null) {
+                        driverMatchingService.updateDriverLocation(
+                                d.getDriverId(),
+                                d.getCurrentLatitude().doubleValue(),
+                                d.getCurrentLongitude().doubleValue()
+                        );
+                    }
+                }
+            });
+            return null;
+        }
+        return toDeliveryResponse(active.get());
     }
 
     // get all delivery history for a driver
@@ -349,17 +464,9 @@ public class DeliveryService {
     public void retryPendingDeliveries(){
         List<Delivery> pending = deliveryRepo.findPendingDeliveries();
         for (Delivery delivery : pending){
-            // Check expiry: cancel if pending for > 30 mins
-            if (delivery.getCreatedAt().isBefore(LocalDateTime.now().minus(30, ChronoUnit.MINUTES))) {
-                delivery.setStatus(DeliveryStatus.CANCELLED);
-                delivery.setCancelReason("No driver available - expired");
-                deliveryRepo.save(delivery);
-                continue;
-            }
-
-            // Check max retries
+            // Check max retries (each retry is ~30s, 20 retries = 10 minutes)
             int currentRetries = delivery.getRetryCount() != null ? delivery.getRetryCount() : 0;
-            if (currentRetries >= 10) { // Max retries
+            if (currentRetries >= 20) {
                 delivery.setStatus(DeliveryStatus.CANCELLED);
                 delivery.setCancelReason("No driver available - max retries reached");
                 deliveryRepo.save(delivery);
@@ -395,10 +502,30 @@ public class DeliveryService {
     }
 
     private DeliveryResponse toDeliveryResponse(Delivery delivery) {
-        // Compute a simple delivery fee: base ₹30 + ₹10 per km
-        BigDecimal fee = new BigDecimal("30.00");
-        if (delivery.getDistanceKm() != null) {
-            fee = fee.add(delivery.getDistanceKm().multiply(new BigDecimal("10")));
+        // Compute delivery fee: base ₹30 + ₹10 per km (₹0 if cancelled)
+        BigDecimal fee = BigDecimal.ZERO;
+        if (delivery.getStatus() != null && delivery.getStatus() != DeliveryStatus.CANCELLED && delivery.getStatus() != DeliveryStatus.FAILED) {
+            fee = new BigDecimal("30.00");
+            if (delivery.getDistanceKm() != null) {
+                fee = fee.add(delivery.getDistanceKm().multiply(new BigDecimal("10")));
+            }
+        }
+
+        String pickupAddr = delivery.getPickupAddress();
+        String restPhone = delivery.getRestaurantPhone();
+        if (pickupAddr == null || pickupAddr.isBlank() || restPhone == null) {
+            java.util.Map restDetails = fetchRestaurantDetails(delivery.getRestaurantId());
+            if (restDetails != null) {
+                if (pickupAddr == null || pickupAddr.isBlank()) {
+                    pickupAddr = restDetails.get("address") != null ? restDetails.get("address").toString() : "shavat city,balapir,adalaj";
+                }
+                if (restPhone == null) {
+                    restPhone = restDetails.get("phone") != null ? restDetails.get("phone").toString() : "9408534410";
+                }
+            } else {
+                if (pickupAddr == null || pickupAddr.isBlank()) pickupAddr = "shavat city,balapir,adalaj";
+                if (restPhone == null) restPhone = "9408534410";
+            }
         }
 
         DeliveryResponse.DeliveryResponseBuilder builder = DeliveryResponse.builder()
@@ -409,9 +536,15 @@ public class DeliveryService {
                 .restaurantName(delivery.getRestaurantName())
                 .driverId(delivery.getDriverId())
                 .status(delivery.getStatus().name())
-                .pickupAddress(delivery.getPickupAddress())
+                .pickupAddress(pickupAddr)
+                .restaurantAddress(pickupAddr)
+                .restaurantPhone(restPhone)
                 .dropoffAddress(delivery.getDropoffAddress())
                 .deliveryAddress(delivery.getDropoffAddress())  // alias for frontend
+                .pickupLatitude(delivery.getPickupLatitude() != null ? delivery.getPickupLatitude() : BigDecimal.valueOf(23.1644))
+                .pickupLongitude(delivery.getPickupLongitude() != null ? delivery.getPickupLongitude() : BigDecimal.valueOf(72.5855))
+                .dropoffLatitude(delivery.getDropoffLatitude() != null ? delivery.getDropoffLatitude() : BigDecimal.valueOf(23.1264))
+                .dropoffLongitude(delivery.getDropoffLongitude() != null ? delivery.getDropoffLongitude() : BigDecimal.valueOf(72.5400))
                 .estimatedDeliveryMins(delivery.getEstimatedDeliveryMins())
                 .actualDeliveryMins(delivery.getActualDeliveryMins())
                 .distanceKm(delivery.getDistanceKm())
@@ -419,7 +552,11 @@ public class DeliveryService {
                 .assignedAt(delivery.getAssignedAt())
                 .pickedUpAt(delivery.getPickedUpAt())
                 .deliveredAt(delivery.getDeliveredAt())
-                .createdAt(delivery.getCreatedAt());
+                .createdAt(delivery.getCreatedAt())
+                .userName(delivery.getUserName())
+                .userPhone(delivery.getUserPhone())
+                .userEmail(delivery.getUserEmail())
+                .specialInstructions(delivery.getSpecialInstructions());
 
         // Add driver info if assigned
         if (delivery.getDriverId() != null) {
@@ -432,6 +569,42 @@ public class DeliveryService {
         }
 
         return builder.build();
+    }
+
+    public java.util.Map fetchRestaurantDetails(String restaurantId) {
+        if (restaurantId == null || restaurantId.isBlank()) return null;
+        try {
+            org.springframework.web.client.RestClient rc = org.springframework.web.client.RestClient.create();
+            return rc.get()
+                    .uri("http://localhost:8082/restaurants/{id}", restaurantId)
+                    .retrieve()
+                    .body(java.util.Map.class);
+        } catch (Exception e) {
+            log.warn("Could not fetch restaurant details for {}: {}", restaurantId, e.getMessage());
+        }
+        return null;
+    }
+
+    @Transactional
+    public void rateDriver(String deliveryIdOrOrderId, int rating, String comment) {
+        Optional<Delivery> deliveryOpt = deliveryRepo.findById(deliveryIdOrOrderId);
+        if (deliveryOpt.isEmpty()) {
+            deliveryOpt = deliveryRepo.findByOrderId(deliveryIdOrOrderId);
+        }
+        deliveryOpt.ifPresent(delivery -> {
+            if (delivery.getDriverId() != null) {
+                driverRepo.findById(delivery.getDriverId()).ifPresent(driver -> {
+                    BigDecimal currentRating = driver.getAvgRating() != null && driver.getAvgRating().compareTo(BigDecimal.ZERO) > 0
+                            ? driver.getAvgRating()
+                            : BigDecimal.valueOf(5.0);
+                    BigDecimal newRating = currentRating.add(BigDecimal.valueOf(rating))
+                            .divide(BigDecimal.valueOf(2), 1, java.math.RoundingMode.HALF_UP);
+                    driver.setAvgRating(newRating);
+                    driverRepo.save(driver);
+                    log.info("Updated driver {} rating to {} based on customer review", driver.getDriverId(), newRating);
+                });
+            }
+        });
     }
 
 }

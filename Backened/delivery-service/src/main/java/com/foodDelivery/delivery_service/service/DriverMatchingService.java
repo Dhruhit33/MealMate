@@ -3,6 +3,7 @@ package com.foodDelivery.delivery_service.service;
 import com.foodDelivery.delivery_service.domain.Driver;
 import com.foodDelivery.delivery_service.domain.DriverStatus;
 import com.foodDelivery.delivery_service.repository.DriverRepo;
+import com.foodDelivery.delivery_service.repository.DeliveryRepo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +22,7 @@ public class DriverMatchingService {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final DriverRepo driverRepository;
+    private final DeliveryRepo deliveryRepo;
     private static final String DRIVER_LOCATIONS_KEY = "driver-locations";
     @Value("${delivery.matching.radius-km:5.0}")
     private double matchingRadiusKm;
@@ -93,19 +95,20 @@ public class DriverMatchingService {
                 return Optional.empty();
             }
 
-            // Filter: must be ONLINE and not already on a delivery
+            // Filter: must not be OFFLINE and not currently on an active delivery
             for (GeoResult<RedisGeoCommands.GeoLocation<String>> result : nearby) {
                 String driverId = result.getContent().getName();
                 double distanceKm = result.getDistance().getValue();
                 Optional<Driver> driverOpt = driverRepository.findById(driverId);
                 if (driverOpt.isPresent()) {
                     Driver driver = driverOpt.get();
-                    if (driver.getStatus() == DriverStatus.ONLINE) {
+                    boolean hasActive = deliveryRepo.findActiveDeliveryByDriverId(driverId).isPresent();
+                    if (!hasActive && driver.getStatus() != DriverStatus.OFFLINE) {
                         log.info("Matched driver: driverId={}, name={}, distance={}km",
                                 driverId, driver.getName(), String.format("%.2f", distanceKm));
                         return Optional.of(driver);
                     } else {
-                        log.debug("Skipping driver {} — status is {}", driverId, driver.getStatus());
+                        log.debug("Skipping driver {} — status is {}, hasActive={}", driverId, driver.getStatus(), hasActive);
                     }
                 }
             }
@@ -119,13 +122,15 @@ public class DriverMatchingService {
     }
 
     /**
-     * Fallback: if Redis is down, find any ONLINE driver from MySQL.
+     * Fallback: if Redis is down, find any available driver from MySQL with no active delivery.
      * Degraded but functional (as per HLD failure scenario).
      */
     private Optional<Driver> fallbackToDatabase() {
         log.warn("Using database fallback for driver matching");
-        return driverRepository.findByStatus(DriverStatus.ONLINE)
+        return driverRepository.findAll()
                 .stream()
+                .filter(d -> d.getStatus() != DriverStatus.OFFLINE)
+                .filter(d -> deliveryRepo.findActiveDeliveryByDriverId(d.getDriverId()).isEmpty())
                 .findFirst();
     }
 

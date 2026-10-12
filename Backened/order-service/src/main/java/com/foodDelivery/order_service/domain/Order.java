@@ -106,7 +106,7 @@ public class Order {
         return switch (this.status) {
             case CREATED    -> newStatus == OrderStatus.CONFIRMED || newStatus == OrderStatus.CANCELLED;
             case CONFIRMED  -> newStatus == OrderStatus.PREPARING || newStatus == OrderStatus.CANCELLED;
-            case PREPARING  -> newStatus == OrderStatus.READY;
+            case PREPARING  -> newStatus == OrderStatus.READY || newStatus == OrderStatus.CANCELLED;
             case READY      -> newStatus == OrderStatus.PICKED_UP;
             case PICKED_UP  -> newStatus == OrderStatus.DELIVERED;
             case DELIVERED   -> newStatus == OrderStatus.COMPLETED;

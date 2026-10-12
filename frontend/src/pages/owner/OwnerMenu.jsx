@@ -280,10 +280,30 @@ function ItemModal({ item, categories, rid, onClose, onSave }) {
   const set = k => v => setForm(p => ({ ...p, [k]: v }));
 
   const handleSave = async () => {
-    if (!form.name || !form.price) { toast.error("Name and price required"); return; }
+    if (!form.name?.trim() || form.price === "" || form.price === undefined) {
+      toast.error("Name and price required");
+      return;
+    }
+    const parsedPrice = parseFloat(form.price);
+    if (isNaN(parsedPrice) || parsedPrice <= 0) {
+      toast.error("Valid positive price is required");
+      return;
+    }
     setSaving(true);
-    try { await onSave({ ...form, price: parseFloat(form.price) }); }
-    catch { toast.error("Failed to save"); }
+    try {
+      const payload = {
+        name: form.name.trim(),
+        description: form.description?.trim() || "",
+        price: parsedPrice,
+        categoryId: form.categoryId && form.categoryId.trim() ? form.categoryId.trim() : null,
+        imageUrl: form.imageUrl || "",
+        isVeg: Boolean(form.isVeg),
+        isBestseller: Boolean(form.isBestSeller),
+      };
+      await onSave(payload);
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.response?.data || "Failed to save");
+    }
     setSaving(false);
   };
 
@@ -305,7 +325,63 @@ function ItemModal({ item, categories, rid, onClose, onSave }) {
           </select>
         </div>
       </div>
-      <Field label="Image URL" value={form.imageUrl} onChange={set("imageUrl")} placeholder="https://..." />
+      {/* Image URL & File Upload */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <label style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: INK_MUTED }}>
+            Item Image (URL or Upload File)
+          </label>
+          {form.imageUrl && (
+            <button
+              type="button"
+              onClick={() => setForm(p => ({ ...p, imageUrl: "" }))}
+              style={{ fontSize: "0.72rem", color: DANGER, background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}
+            >
+              Clear Image
+            </button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="text"
+            value={form.imageUrl}
+            onChange={e => setForm(p => ({ ...p, imageUrl: e.target.value }))}
+            placeholder="https://... or click Upload button"
+            style={{
+              flex: 1, padding: "11px 14px", background: "#F5ECD8", borderRadius: 10,
+              border: "1.5px solid transparent", fontSize: "0.9rem", color: INK, outline: "none",
+              boxSizing: "border-box"
+            }}
+          />
+          <label style={{
+            padding: "11px 16px", borderRadius: 10, background: "#E8DEC8", color: INK,
+            fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", display: "flex",
+            alignItems: "center", gap: 6, whiteSpace: "nowrap"
+          }}>
+            📁 Upload
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  setForm(p => ({ ...p, imageUrl: ev.target.result }));
+                  toast.success("Image loaded! ✓");
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+          </label>
+        </div>
+        {form.imageUrl && (
+          <div style={{ marginTop: 8, height: 110, borderRadius: 10, overflow: "hidden", background: "#E8DEC8", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <img src={form.imageUrl} alt="Item Preview" style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }} onError={(e) => { e.target.style.display = "none"; }} />
+          </div>
+        )}
+      </div>
       <div style={{ display: "flex", gap: 20, marginBottom: 20 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
           <input type="checkbox" checked={form.isVeg} onChange={e => setForm(p => ({ ...p, isVeg: e.target.checked }))} />

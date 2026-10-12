@@ -3,11 +3,36 @@ import { persist } from "zustand/middleware";
 import api from "../api/axios";
 import { useDriverStore } from "./driverStore";
 
+// Synchronously read cached credentials from localStorage so initial render never starts unauthenticated on browser refresh
+const getStoredAuth = () => {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return { token: null, user: null };
+  }
+  try {
+    const raw = window.localStorage.getItem("foodrush-auth");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.state && parsed.state.token) {
+        return {
+          token: parsed.state.token || null,
+          user: parsed.state.user || null,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to parse cached auth from localStorage:", e);
+  }
+  return { token: null, user: null };
+};
+
+const initialAuth = getStoredAuth();
+
 export const useAuthStore = create(
   persist(
     (set, get) => ({
-      token: null,
-      user: null,
+      token: initialAuth.token,
+      user: initialAuth.user,
+      isHydrated: true,
 
       get isAuthenticated() {
         return !!get().token;
@@ -64,6 +89,11 @@ export const useAuthStore = create(
 
       logout: () => {
         set({ token: null, user: null });
+        try {
+          if (typeof window !== "undefined" && window.localStorage) {
+            window.localStorage.removeItem("foodrush-auth");
+          }
+        } catch (e) {}
         if (useDriverStore.getState().clearProfile) {
           useDriverStore.getState().clearProfile();
         }

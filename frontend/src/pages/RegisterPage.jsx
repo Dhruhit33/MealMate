@@ -37,8 +37,23 @@ export default function RegisterPage() {
 
   // If already authenticated, redirect to role home
   useEffect(() => {
-    if (token && user) {
-      const role = normaliseRole(user.role);
+    let effectiveToken = token;
+    let effectiveUser = user;
+    if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem("foodrush-auth");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.state?.token) {
+            effectiveToken = parsed.state.token;
+            effectiveUser = parsed.state.user || effectiveUser;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (effectiveToken && effectiveUser) {
+      const role = normaliseRole(effectiveUser.role);
       if (role === "DRIVER") navigate("/driver", { replace: true });
       else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
       else navigate("/", { replace: true });
@@ -65,23 +80,18 @@ export default function RegisterPage() {
   };
 
   const fieldStyle = (name) => ({
-    width: "100%", padding: "22px 16px 10px",
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "14px 16px",
     background: focused === name ? FIELD_FOCUS : FIELD,
     border: `1.5px solid ${focused === name ? TERRACOTTA : "transparent"}`,
-    borderRadius: 12, color: INK, fontSize: "0.95rem",
-    fontFamily: "var(--font-sans)", outline: "none", transition: "all 0.25s",
+    borderRadius: 12,
+    color: INK,
+    fontSize: "0.95rem",
+    fontFamily: "var(--font-sans)",
+    outline: "none",
+    transition: "all 0.25s",
     boxShadow: focused === name ? `0 0 0 4px ${TERRACOTTA}12` : "none",
-  });
-
-  const labelStyle = (name, value) => ({
-    position: "absolute", left: 16,
-    top: (focused === name || value) ? 8 : 18,
-    fontSize: (focused === name || value) ? "0.7rem" : "0.95rem",
-    color: focused === name ? TERRACOTTA : INK_MUTED,
-    textTransform: (focused === name || value) ? "uppercase" : "none",
-    letterSpacing: (focused === name || value) ? "0.1em" : "0",
-    fontWeight: (focused === name || value) ? 600 : 400,
-    pointerEvents: "none", transition: "all 0.2s ease",
   });
 
   return (
@@ -243,16 +253,36 @@ export default function RegisterPage() {
             </div>
 
             {[
-              { key: "name", label: "Full name", type: "text" },
-              { key: "email", label: "Email address", type: "email" },
-              { key: "phone", label: "Phone number", type: "tel" },
-              { key: "password", label: "Password (min 6)", type: "password" },
+              { key: "name", label: "Full name", type: "text", placeholder: "e.g. John Doe", auto: "name" },
+              { key: "email", label: "Email address", type: "email", placeholder: "you@example.com", auto: "email" },
+              { key: "phone", label: "Phone number", type: "tel", placeholder: "e.g. +91 9876543210", auto: "tel" },
+              { key: "password", label: "Password (min 6)", type: "password", placeholder: "••••••••", auto: "new-password" },
             ].map((f) => (
-              <div key={f.key} style={{ marginBottom: 14, position: "relative" }}>
-                <input type={f.type} value={form[f.key]} onChange={set(f.key)} placeholder=" " id={f.key}
-                  onFocus={() => setFocused(f.key)} onBlur={() => setFocused(null)}
-                  style={fieldStyle(f.key)} />
-                <label htmlFor={f.key} style={labelStyle(f.key, form[f.key])}>{f.label}</label>
+              <div key={f.key} style={{ marginBottom: 16 }}>
+                <label htmlFor={f.key} style={{
+                  display: "block",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: focused === f.key ? TERRACOTTA : INK_SOFT,
+                  marginBottom: 8,
+                  transition: "color 0.2s ease"
+                }}>
+                  {f.label}
+                </label>
+                <input
+                  type={f.type}
+                  value={form[f.key]}
+                  onChange={set(f.key)}
+                  placeholder={f.placeholder}
+                  id={f.key}
+                  name={f.key}
+                  autoComplete={f.auto}
+                  onFocus={() => setFocused(f.key)}
+                  onBlur={() => setFocused(null)}
+                  style={fieldStyle(f.key)}
+                />
               </div>
             ))}
 
@@ -305,6 +335,14 @@ export default function RegisterPage() {
         @keyframes scale-in {
           from { opacity: 0; transform: scale(0.5); }
           to { opacity: 1; transform: scale(1); }
+        }
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 1000px ${FIELD} inset !important;
+          -webkit-text-fill-color: ${INK} !important;
+          transition: background-color 5000s ease-in-out 0s;
         }
         @media (max-width: 600px) {
           .register-form-wrap {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Star, Clock, MapPin, ArrowLeft, Plus, Flame, MessageSquare, Search, Send, Loader2 } from "lucide-react";
+import { Star, Clock, MapPin, ArrowLeft, Plus, Minus, Flame, MessageSquare, Search, Send, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRestaurantStore } from "../../store/restaurantStore";
 import { useAuthStore } from "../../store/authStore";
@@ -40,14 +40,19 @@ export default function RestaurantDetailPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const { current, categories, menuItems, reviews, loading, fetchRestaurant, submitReview } = useRestaurantStore();
+  const items = useCartStore((s) => s.items);
+  const fetchCart = useCartStore((s) => s.fetchCart);
+  const itemCount = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
+  const cartTotal = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.quantity || 1), 0);
   const [vegOnly, setVegOnly] = useState(false);
   const [menuQuery, setMenuQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState(null);
   const categoryRefs = useRef({});
 
   useEffect(() => {
+    fetchCart();
     if (id) fetchRestaurant(id).catch(() => toast.error("Couldn't load restaurant"));
-  }, [id]);
+  }, [id, fetchCart]);
 
   const grouped = useMemo(() => {
     const filtered = menuItems.filter((item) => {
@@ -113,7 +118,14 @@ export default function RestaurantDetailPage() {
             gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
             gap: 16,
           }}>
-            {bestsellers.map((item) => <BestsellerCard key={item.itemId} item={item} />)}
+            {bestsellers.map((item) => (
+              <BestsellerCard
+                key={item.itemId}
+                item={item}
+                restaurantId={r.restaurantId}
+                restaurantName={r.name}
+              />
+            ))}
           </div>
         </section>
       )}
@@ -226,6 +238,45 @@ export default function RestaurantDetailPage() {
           />
         </main>
       </div>
+
+      {/* Floating cart bar */}
+      {itemCount > 0 && (
+        <div
+          onClick={() => navigate("/checkout")}
+          style={{
+            position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+            zIndex: 90, width: "calc(100% - 32px)", maxWidth: 540,
+            background: `linear-gradient(135deg, ${TERRACOTTA_DEEP}, ${TERRACOTTA})`,
+            color: "#FFF5E6", borderRadius: 18,
+            padding: "14px 24px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            boxShadow: "0 10px 32px rgba(138,47,24,0.36)",
+            cursor: "pointer",
+            animation: "fade-up 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+            transition: "transform 0.2s, box-shadow 0.2s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateX(-50%) translateY(-2px)";
+            e.currentTarget.style.boxShadow = "0 14px 38px rgba(138,47,24,0.46)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateX(-50%) translateY(0)";
+            e.currentTarget.style.boxShadow = "0 10px 32px rgba(138,47,24,0.36)";
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "0.95rem", letterSpacing: "-0.01em" }}>
+              {itemCount} {itemCount === 1 ? "item" : "items"} added • ₹{cartTotal}
+            </div>
+            <div style={{ fontSize: "0.78rem", opacity: 0.88 }}>
+              Taxes & delivery calculated at checkout
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: "0.92rem" }}>
+            View Cart →
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes fade-up { from { opacity:0; transform:translateY(16px);} to { opacity:1; transform:translateY(0);} }
@@ -432,10 +483,43 @@ function NonVegIcon({ size = 14 }) {
 }
 
 // ────── Bestseller card ──────
-function BestsellerCard({ item }) {
+function BestsellerCard({ item, restaurantId, restaurantName }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const items = useCartStore((s) => s.items);
+  const addItem = useCartStore((s) => s.addItem);
+  const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const removeItem = useCartStore((s) => s.removeItem);
+  const itemId = item.itemId || item.id || item.menuItemId;
+  const cartItem = items.find((i) => (i.menuItemId || i.itemId) === itemId);
+  const qty = cartItem ? cartItem.quantity : 0;
   const palette = paletteFor(item.name);
+
+  const handleAdd = async (e) => {
+    e?.stopPropagation();
+    if (!item.isAvailable) return toast.error("Sorry, currently unavailable");
+    const result = await addItem(item, restaurantId, restaurantName);
+    if (result.conflict) {
+      toast.error(`Please clear cart with ${result.existingRestaurant} first`);
+      return;
+    }
+    toast.success(`${item.name} added to cart`);
+  };
+
+  const handleIncrement = async (e) => {
+    e?.stopPropagation();
+    await updateQuantity(itemId, qty + 1);
+  };
+
+  const handleDecrement = async (e) => {
+    e?.stopPropagation();
+    if (qty <= 1) {
+      await removeItem(itemId);
+      toast.success(`${item.name} removed from cart`);
+    } else {
+      await updateQuantity(itemId, qty - 1);
+    }
+  };
 
   return (
     <div style={{
@@ -492,7 +576,71 @@ function BestsellerCard({ item }) {
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>{item.name}</span>
         </div>
-        <div style={{ fontSize: "0.85rem", color: TERRACOTTA_DEEP, fontWeight: 700, fontFamily: "var(--font-display)" }}>₹{item.price}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+          <div style={{ fontSize: "0.88rem", color: TERRACOTTA_DEEP, fontWeight: 700, fontFamily: "var(--font-display)" }}>₹{item.price}</div>
+          {qty === 0 ? (
+            <button
+              onClick={handleAdd}
+              disabled={!item.isAvailable}
+              style={{
+                padding: "4px 12px", borderRadius: 999, border: `1.5px solid ${TERRACOTTA}`,
+                background: "#FFFAF0", color: TERRACOTTA_DEEP,
+                fontSize: "0.72rem", fontWeight: 700, fontFamily: "var(--font-sans)",
+                cursor: item.isAvailable ? "pointer" : "not-allowed",
+                display: "inline-flex", alignItems: "center", gap: 3,
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                if (item.isAvailable) {
+                  e.currentTarget.style.background = TERRACOTTA;
+                  e.currentTarget.style.color = "#FFF5E6";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (item.isAvailable) {
+                  e.currentTarget.style.background = "#FFFAF0";
+                  e.currentTarget.style.color = TERRACOTTA_DEEP;
+                }
+              }}
+            >
+              <Plus size={11} strokeWidth={2.5} /> ADD
+            </button>
+          ) : (
+            <div style={{
+              display: "inline-flex", alignItems: "center",
+              borderRadius: 999, border: `1.5px solid ${TERRACOTTA}`,
+              background: "#FFFAF0", height: 26, padding: "0 2px",
+              boxShadow: "0 2px 8px rgba(43,29,18,0.12)",
+            }}>
+              <button
+                type="button"
+                onClick={handleDecrement}
+                style={{
+                  border: "none", background: "transparent", width: 22, height: 22,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: TERRACOTTA_DEEP, cursor: "pointer", padding: 0,
+                }}
+              >
+                <Minus size={11} strokeWidth={2.5} />
+              </button>
+              <span style={{
+                minWidth: 16, textAlign: "center", fontWeight: 700,
+                fontSize: "0.75rem", color: TERRACOTTA_DEEP,
+              }}>{qty}</span>
+              <button
+                type="button"
+                onClick={handleIncrement}
+                style={{
+                  border: "none", background: "transparent", width: 22, height: 22,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: TERRACOTTA_DEEP, cursor: "pointer", padding: 0,
+                }}
+              >
+                <Plus size={11} strokeWidth={2.5} />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -500,15 +648,22 @@ function BestsellerCard({ item }) {
 
 // ────── Menu row with image ──────
 function MenuItemRow({ item, index, restaurantId, restaurantName }) {
-  const [added, setAdded] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [showConflict, setShowConflict] = useState(false);
   const [pendingConflict, setPendingConflict] = useState(null);
-  const { addItem, clearAndAdd } = useCartStore();
+  const items = useCartStore((s) => s.items);
+  const addItem = useCartStore((s) => s.addItem);
+  const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const removeItem = useCartStore((s) => s.removeItem);
+  const clearAndAdd = useCartStore((s) => s.clearAndAdd);
+  const itemId = item.itemId || item.id || item.menuItemId;
+  const cartItem = items.find((i) => (i.menuItemId || i.itemId) === itemId);
+  const qty = cartItem ? cartItem.quantity : 0;
   const palette = paletteFor(item.name);
 
-  const handleAdd = async () => {
+  const handleAdd = async (e) => {
+    e?.stopPropagation();
     if (!item.isAvailable) return toast.error("Sorry, currently unavailable");
     const result = await addItem(item, restaurantId, restaurantName);
     if (result.conflict) {
@@ -516,17 +671,28 @@ function MenuItemRow({ item, index, restaurantId, restaurantName }) {
       setShowConflict(true);
       return;
     }
-    setAdded(true);
     toast.success(`${item.name} added to cart`);
-    setTimeout(() => setAdded(false), 1200);
+  };
+
+  const handleIncrement = async (e) => {
+    e?.stopPropagation();
+    await updateQuantity(itemId, qty + 1);
+  };
+
+  const handleDecrement = async (e) => {
+    e?.stopPropagation();
+    if (qty <= 1) {
+      await removeItem(itemId);
+      toast.success(`${item.name} removed from cart`);
+    } else {
+      await updateQuantity(itemId, qty - 1);
+    }
   };
 
   const handleConfirmClear = async () => {
     await clearAndAdd(item, restaurantId, restaurantName);
     setShowConflict(false);
-    setAdded(true);
     toast.success(`Cart cleared. ${item.name} added!`);
-    setTimeout(() => setAdded(false), 1200);
   };
 
   return (
@@ -597,20 +763,95 @@ function MenuItemRow({ item, index, restaurantId, restaurantName }) {
           )}
         </div>
 
-        <button onClick={handleAdd} disabled={!item.isAvailable} style={{
-          position: "absolute", bottom: -12, left: "50%", transform: "translateX(-50%)",
-          padding: "7px 22px", borderRadius: 999, border: `1.5px solid ${added ? VEG : TERRACOTTA}`,
-          background: added ? VEG : "#FFFAF0",
-          color: added ? "#FFF5E6" : TERRACOTTA_DEEP,
-          fontSize: "0.78rem", fontWeight: 700,
-          fontFamily: "var(--font-sans)",
-          cursor: item.isAvailable ? "pointer" : "not-allowed",
-          boxShadow: "0 4px 12px rgba(43,29,18,0.18)",
-          display: "flex", alignItems: "center", gap: 5, transition: "all 0.2s",
-          letterSpacing: "0.03em",
-        }}>
-          {added ? "Added" : <><Plus size={13} strokeWidth={2.5} /> ADD</>}
-        </button>
+        {qty === 0 ? (
+          <button
+            className="menu-row-add"
+            onClick={handleAdd}
+            disabled={!item.isAvailable}
+            style={{
+              position: "absolute", bottom: -12, left: "50%", transform: "translateX(-50%)",
+              padding: "7px 22px", borderRadius: 999, border: `1.5px solid ${TERRACOTTA}`,
+              background: "#FFFAF0",
+              color: TERRACOTTA_DEEP,
+              fontSize: "0.78rem", fontWeight: 700,
+              fontFamily: "var(--font-sans)",
+              cursor: item.isAvailable ? "pointer" : "not-allowed",
+              boxShadow: "0 4px 12px rgba(43,29,18,0.18)",
+              display: "flex", alignItems: "center", gap: 5, transition: "all 0.2s",
+              letterSpacing: "0.03em",
+              whiteSpace: "nowrap",
+              zIndex: 2,
+            }}
+            onMouseEnter={(e) => {
+              if (item.isAvailable) {
+                e.currentTarget.style.background = TERRACOTTA;
+                e.currentTarget.style.color = "#FFF5E6";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (item.isAvailable) {
+                e.currentTarget.style.background = "#FFFAF0";
+                e.currentTarget.style.color = TERRACOTTA_DEEP;
+              }
+            }}
+          >
+            <Plus size={13} strokeWidth={2.5} /> ADD
+          </button>
+        ) : (
+          <div
+            className="menu-row-add"
+            style={{
+              position: "absolute", bottom: -12, left: "50%", transform: "translateX(-50%)",
+              height: 32, minWidth: 96,
+              borderRadius: 999, border: `1.5px solid ${TERRACOTTA}`,
+              background: "#FFFAF0",
+              boxShadow: "0 4px 14px rgba(43,29,18,0.18)",
+              display: "inline-flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0 4px", userSelect: "none",
+              zIndex: 2,
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleDecrement}
+              aria-label="Decrease quantity"
+              style={{
+                border: "none", background: "transparent",
+                width: 28, height: 28, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: TERRACOTTA_DEEP, cursor: "pointer",
+                padding: 0, transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = `${TERRACOTTA}18`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            >
+              <Minus size={13} strokeWidth={2.6} />
+            </button>
+            <span style={{
+              minWidth: 20, textAlign: "center",
+              fontWeight: 700, fontSize: "0.85rem",
+              color: TERRACOTTA_DEEP, fontFamily: "var(--font-sans)",
+            }}>
+              {qty}
+            </span>
+            <button
+              type="button"
+              onClick={handleIncrement}
+              aria-label="Increase quantity"
+              style={{
+                border: "none", background: "transparent",
+                width: 28, height: 28, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: TERRACOTTA_DEEP, cursor: "pointer",
+                padding: 0, transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = `${TERRACOTTA}18`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            >
+              <Plus size={13} strokeWidth={2.6} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Cart cross-restaurant conflict modal */}

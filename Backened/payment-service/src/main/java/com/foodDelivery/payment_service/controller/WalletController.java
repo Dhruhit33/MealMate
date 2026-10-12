@@ -26,33 +26,39 @@ public class WalletController {
     //get current wallet balance for the current user
 
     @GetMapping("/balance")
-    public ResponseEntity<WalletResponse> getBalance (@RequestHeader("Authorization") String token ){
-        String userId = extractUserId(token);
+    public ResponseEntity<WalletResponse> getBalance (
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token ){
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
         return ResponseEntity.ok(walletService.getBalance(userId));
     }
 
     @PostMapping("/create")
-    public  ResponseEntity<WalletResponse> createWallet(@RequestHeader("Authorization") String token ){
-        String userId = extractUserId(token);
+    public  ResponseEntity<WalletResponse> createWallet(
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token ){
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(walletService.createWallet(userId));
     }
     @PostMapping("/add-funds")
     public ResponseEntity<WalletResponse> addFunds(
-            @RequestHeader("Authorization") String token,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @Valid @RequestBody AddFundRequest request) {
 
-        String userId = extractUserId(token);
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
         return ResponseEntity.ok(walletService.addFunds(userId, request.getAmount()));
     }
 
 
     @PostMapping("/lock")
     public ResponseEntity<WalletResponse> lockFunds(
-            @RequestHeader("Authorization") String token,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @Valid @RequestBody LockFundsRequest request) {
 
-        String userId = extractUserId(token);
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
         return ResponseEntity.ok(walletService.lockFunds(userId, request.getOrderId(), request.getAmount()));
     }
 

@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
-import { MapPin, Plus, Pencil, Trash2, X, Loader2, Home, Briefcase, Navigation, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { MapPin, Plus, Pencil, Trash2, X, Loader2, Home, Briefcase, Navigation, Sparkles, ArrowLeft } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAddressStore } from "../../store/addressStore";
+import MapLocationPicker from "../../components/MapLocationPicker";
 
 const INK = "#2B1D12";
 const INK_SOFT = "rgba(43,29,18,0.62)";
@@ -61,6 +63,7 @@ async function geocode(query) {
 }
 
 export default function AddressesPage() {
+  const navigate = useNavigate();
   const { addresses, loading, fetchAddresses, addAddress, updateAddress, deleteAddress } = useAddressStore();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -69,10 +72,17 @@ export default function AddressesPage() {
   const [geocoding, setGeocoding] = useState(false);
   const [coordStatus, setCoordStatus] = useState(null); // null | 'found' | 'manual'
   const [locating, setLocating] = useState(false);
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
 
   useEffect(() => { fetchAddresses(); }, []);
 
-  const openAdd = () => { setForm(empty); setEditingId(null); setCoordStatus(null); setShowModal(true); };
+  const openAdd = () => {
+    setForm(empty);
+    setEditingId(null);
+    setCoordStatus(null);
+    setIsLocationConfirmed(false);
+    setShowModal(true);
+  };
   const openEdit = (a) => {
     setForm({
       label: a.label || "HOME", street: a.street || "", city: a.city || "", state: a.state || "",
@@ -80,7 +90,22 @@ export default function AddressesPage() {
     });
     setEditingId(a.addressId);
     setCoordStatus(a.latitude && a.longitude ? "found" : null);
+    setIsLocationConfirmed(Boolean(a.latitude && a.longitude));
     setShowModal(true);
+  };
+
+  const handleMapConfirm = (loc) => {
+    setForm(f => ({
+      ...f,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      street: loc.street || f.street,
+      city: loc.city || f.city,
+      state: loc.state || f.state,
+      pincode: loc.pincode || f.pincode,
+    }));
+    setIsLocationConfirmed(true);
+    setCoordStatus("found");
   };
 
   // Auto-geocode when pincode/city changes
@@ -138,15 +163,9 @@ export default function AddressesPage() {
 
   const handleSave = async () => {
     if (!form.street || !form.city) return toast.error("Street and city are required");
-    // Allow saving even without coordinates — many backends accept 0,0
-    if (!form.latitude && !form.longitude) {
-      // Try one last geocode attempt
-      const q = [form.street, form.city, form.state, form.pincode].filter(Boolean).join(", ");
-      const coords = await geocode(q);
-      if (coords) {
-        form.latitude = coords.latitude;
-        form.longitude = coords.longitude;
-      }
+    // Compulsory check: location MUST be selected and confirmed on the map
+    if (!isLocationConfirmed || !form.latitude || !form.longitude) {
+      return toast.error("Please choose and confirm your location on the map first (Compulsory)!");
     }
     setSaving(true);
     try {
@@ -176,6 +195,40 @@ export default function AddressesPage() {
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", animation: "fade-up 0.4s ease-out" }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 16px",
+          borderRadius: 999,
+          border: `1px solid ${INK_HAIR}`,
+          background: CARD,
+          color: INK_SOFT,
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
+          fontFamily: "var(--font-sans)",
+          transition: "all 0.2s ease",
+          boxShadow: "0 1px 3px rgba(43,29,18,0.04)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = TERRACOTTA_SOFT;
+          e.currentTarget.style.color = TERRACOTTA_DEEP;
+          e.currentTarget.style.transform = "translateX(-3px)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = INK_HAIR;
+          e.currentTarget.style.color = INK_SOFT;
+          e.currentTarget.style.transform = "translateX(0)";
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
         <div>
           <h1 style={{
@@ -262,7 +315,7 @@ export default function AddressesPage() {
         }} onClick={() => setShowModal(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{
             background: "#FFFAF0", borderRadius: 20,
-            width: "100%", maxWidth: 460, padding: 32,
+            width: "100%", maxWidth: 540, maxHeight: "90vh", overflowY: "auto", padding: "28px 24px",
             boxShadow: "0 20px 60px rgba(43,29,18,0.25)",
             animation: "scale-in 0.2s ease-out",
           }}>
@@ -296,55 +349,23 @@ export default function AddressesPage() {
               })}
             </div>
 
-            {/* Use my location button */}
-            <button type="button" onClick={handleUseMyLocation} disabled={locating} style={{
-              width: "100%", padding: "12px", borderRadius: 10, border: `1.5px dashed ${TERRACOTTA}`,
-              background: `${TERRACOTTA}06`, color: TERRACOTTA_DEEP,
-              fontSize: "0.85rem", fontWeight: 600, fontFamily: "var(--font-sans)",
-              cursor: locating ? "not-allowed" : "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              marginBottom: 16, transition: "all 0.2s",
-            }}>
-              {locating ? (
-                <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Detecting location...</>
-              ) : (
-                <><Navigation size={14} /> Use my current location</>
-              )}
-            </button>
+            {/* Interactive Map Picker (Compulsory location confirmation) */}
+            <MapLocationPicker
+              initialLat={form.latitude}
+              initialLng={form.longitude}
+              initialAddress={[form.street, form.city, form.state, form.pincode].filter(Boolean).join(", ")}
+              onConfirmLocation={handleMapConfirm}
+              isCompulsory={true}
+              title="Pin Delivery Location on Map (Compulsory)"
+            />
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input value={form.street} onChange={set("street")} placeholder="Street address (e.g. 123 Park Avenue)" style={inputStyle} onFocus={focusH} onBlur={blurH} />
+              <input value={form.street} onChange={set("street")} placeholder="Street / House / Area (e.g. Annapurnadham, Adalaj)" style={inputStyle} onFocus={focusH} onBlur={blurH} />
               <div style={{ display: "flex", gap: 10 }}>
-                <input value={form.city} onChange={set("city")} placeholder="City" style={inputStyle} onFocus={focusH} onBlur={blurH} />
+                <input value={form.city} onChange={set("city")} placeholder="City (e.g. Adalaj / Gandhinagar)" style={inputStyle} onFocus={focusH} onBlur={blurH} />
                 <input value={form.state} onChange={set("state")} placeholder="State" style={inputStyle} onFocus={focusH} onBlur={blurH} />
               </div>
               <input value={form.pincode} onChange={set("pincode")} placeholder="Pincode" style={inputStyle} onFocus={focusH} onBlur={blurH} />
-            </div>
-
-            {/* Geocoding status */}
-            <div style={{
-              marginTop: 14, padding: "10px 14px", borderRadius: 10,
-              background: coordStatus === "found" ? `${PISTACHIO}12` : FIELD,
-              display: "flex", alignItems: "center", gap: 10,
-              fontSize: "0.8rem",
-              color: coordStatus === "found" ? PISTACHIO : INK_MUTED,
-            }}>
-              {geocoding ? (
-                <>
-                  <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
-                  Finding location coordinates...
-                </>
-              ) : coordStatus === "found" ? (
-                <>
-                  <Sparkles size={14} />
-                  Location found automatically
-                </>
-              ) : (
-                <>
-                  <MapPin size={14} />
-                  Coordinates will be auto-detected from address
-                </>
-              )}
             </div>
 
             <button onClick={handleSave} disabled={saving} style={{

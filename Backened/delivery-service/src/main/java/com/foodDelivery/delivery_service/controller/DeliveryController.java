@@ -84,6 +84,24 @@ public class DeliveryController {
     }
 
     /**
+     * POST /delivery/decline
+     * Driver declines / rejects assigned delivery request.
+     */
+    @PostMapping("/decline")
+    public ResponseEntity<?> declineDelivery(@RequestHeader("Authorization") String authHeader) {
+        String userId = extractUserId(authHeader);
+        String driverId = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new IllegalStateException("Driver profile not found"))
+                .getDriverId();
+
+        DeliveryResponse response = deliveryService.declineDelivery(driverId);
+        return ResponseEntity.ok(Map.of(
+                "message", "Delivery request declined. You are back online.",
+                "delivery", response
+        ));
+    }
+
+    /**
      * POST /delivery/pickup
      * Driver confirms food pickup from restaurant.
      */
@@ -119,9 +137,25 @@ public class DeliveryController {
         ));
     }
 
+    @PostMapping("/order/{orderId}/rate-driver")
+    public ResponseEntity<?> rateDriverByOrder(
+            @PathVariable String orderId,
+            @RequestBody Map<String, Object> body) {
+        int rating = body.get("rating") != null ? Integer.parseInt(body.get("rating").toString()) : 5;
+        String comment = body.get("comment") != null ? body.get("comment").toString() : "";
+        deliveryService.rateDriver(orderId, rating, comment);
+        return ResponseEntity.ok(Map.of("message", "Driver rated successfully"));
+    }
 
-
-
+    @PostMapping("/{deliveryId}/rate-driver")
+    public ResponseEntity<?> rateDriver(
+            @PathVariable String deliveryId,
+            @RequestBody Map<String, Object> body) {
+        int rating = body.get("rating") != null ? Integer.parseInt(body.get("rating").toString()) : 5;
+        String comment = body.get("comment") != null ? body.get("comment").toString() : "";
+        deliveryService.rateDriver(deliveryId, rating, comment);
+        return ResponseEntity.ok(Map.of("message", "Driver rated successfully"));
+    }
 
     private String extractUserId(String authHeader) {
         String token = authHeader.replace("Bearer ", "");

@@ -98,10 +98,23 @@ export default function OwnerOrders() {
     setAL(p => ({ ...p, [order.orderId]: false }));
   };
 
-  const handleStatus = async (orderId, status) => {
+  const handleStatus = async (orderId, status, reason = null) => {
     setAL(p => ({ ...p, [orderId]: true }));
-    try { await updateOrderStatus(orderId, status); toast.success(`Marked as ${STATUS_META[status]?.label || status}`); }
+    try { await updateOrderStatus(orderId, status, reason); toast.success(`Marked as ${STATUS_META[status]?.label || status}`); }
     catch { toast.error("Failed to update"); }
+    setAL(p => ({ ...p, [orderId]: false }));
+  };
+
+  const handleReject = async (orderId, reason = "Items unavailable to prepare order") => {
+    const confirmed = window.confirm("Are you sure you want to reject this order? Locked funds will be immediately refunded to the customer's wallet.");
+    if (!confirmed) return;
+    setAL(p => ({ ...p, [orderId]: true }));
+    try {
+      await updateOrderStatus(orderId, "CANCELLED", reason);
+      toast.success("Order rejected & refunded to customer wallet! 💸");
+    } catch {
+      toast.error("Failed to reject order");
+    }
     setAL(p => ({ ...p, [orderId]: false }));
   };
 
@@ -251,12 +264,18 @@ export default function OwnerOrders() {
                           {next.label}
                         </button>
                       )}
-                      {isNew && (
-                        <button onClick={() => handleStatus(order.orderId, "CANCELLED")} disabled={busy}
+                      {["CREATED", "PLACED", "CONFIRMED", "PREPARING"].includes(order.status) && (
+                        <button
+                          onClick={() => handleReject(
+                            order.orderId,
+                            order.status === "PREPARING" ? "Items unavailable to prepare order" : "Order rejected by restaurant"
+                          )}
+                          disabled={busy}
+                          title={order.status === "PREPARING" ? "Reject & refund wallet (item unavailable)" : "Reject order"}
                           style={{ padding: "12px 16px", borderRadius: 12, border: "1px solid #DC262625",
                             background: "#DC262608", color: DANGER, fontWeight: 600, fontSize: "0.88rem",
-                            cursor: "pointer", fontFamily: "var(--font-sans)", display: "flex",
-                            alignItems: "center", gap: 6 }}>
+                            cursor: busy ? "not-allowed" : "pointer", fontFamily: "var(--font-sans)", display: "flex",
+                            alignItems: "center", gap: 6, opacity: busy ? 0.7 : 1 }}>
                           <XCircle size={15} /> Reject
                         </button>
                       )}

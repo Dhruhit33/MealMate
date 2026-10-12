@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { MapPin, Plus, Pencil, Trash2, X, Loader2, Home, Briefcase, Navigation, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { MapPin, Plus, Pencil, Trash2, X, Loader2, Home, Briefcase, Navigation, Sparkles, ArrowLeft, Building } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAddressStore } from "../store/addressStore";
 
@@ -20,6 +21,7 @@ const NONVEG = "#A83232";
 const LABELS = [
   { value: "HOME", label: "Home", icon: Home },
   { value: "WORK", label: "Work", icon: Briefcase },
+  { value: "HOSTEL", label: "Hostel", icon: Building },
   { value: "OTHER", label: "Other", icon: Navigation },
 ];
 const empty = { label: "HOME", street: "", city: "", state: "", pincode: "", latitude: 0, longitude: 0 };
@@ -61,6 +63,7 @@ async function geocode(query) {
 }
 
 export default function AddressesPage() {
+  const navigate = useNavigate();
   const { addresses, loading, fetchAddresses, addAddress, updateAddress, deleteAddress } = useAddressStore();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -176,6 +179,40 @@ export default function AddressesPage() {
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", animation: "fade-up 0.4s ease-out" }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 16px",
+          borderRadius: 999,
+          border: `1px solid ${INK_HAIR}`,
+          background: CARD,
+          color: INK_SOFT,
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
+          fontFamily: "var(--font-sans)",
+          transition: "all 0.2s ease",
+          boxShadow: "0 1px 3px rgba(43,29,18,0.04)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = TERRACOTTA_SOFT;
+          e.currentTarget.style.color = TERRACOTTA_DEEP;
+          e.currentTarget.style.transform = "translateX(-3px)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = INK_HAIR;
+          e.currentTarget.style.color = INK_SOFT;
+          e.currentTarget.style.transform = "translateX(0)";
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
         <div>
           <h1 style={{

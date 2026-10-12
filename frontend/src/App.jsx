@@ -60,6 +60,9 @@ export default function App() {
           <Route path="/orders"                 element={<OrdersPage />} />
           <Route path="/orders/:orderId"        element={<OrderDetailPage />} />
           <Route path="/orders/:orderId/track"  element={<OrderTrackingPage />} />
+          <Route path="/orders/track"           element={<OrderTrackingPage />} />
+          <Route path="/track"                  element={<OrderTrackingPage />} />
+          <Route path="/track/:orderId"         element={<OrderTrackingPage />} />
           <Route path="/wallet"                 element={<WalletPage />} />
         </Route>
 

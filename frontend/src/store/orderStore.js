@@ -27,9 +27,19 @@ export const useOrderStore = create((set) => ({
   deliveryInfo: null,
   loading: false,
 
-  placeOrder: async (addressObj) => {
-    // Build deliverAddress from address object fields
-    const addressStr = [
+  placeOrder: async (addressObj, userMeta = {}) => {
+    let authUser = null;
+    try {
+      const stored = localStorage.getItem("foodrush-auth");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        authUser = parsed.state?.user;
+      }
+    } catch {}
+
+    // Include label prefix (e.g. [HOSTEL] or [HOME])
+    const labelPrefix = addressObj.label ? `[${addressObj.label}] ` : "";
+    const addressStr = labelPrefix + [
       addressObj.street,
       addressObj.city,
       addressObj.state,
@@ -39,7 +49,11 @@ export const useOrderStore = create((set) => ({
     const payload = {
       deliveryAddressId: String(addressObj.addressId || ""),
       deliverAddress: addressStr,
-      specialInstructions: "",
+      customerPhone: userMeta.phone || authUser?.phone || addressObj.phone || "",
+      customerName: userMeta.name || authUser?.name || addressObj.name || "Customer",
+      specialInstructions: userMeta.instructions || "",
+      latitude: addressObj.latitude !== undefined && addressObj.latitude !== null ? Number(addressObj.latitude) : null,
+      longitude: addressObj.longitude !== undefined && addressObj.longitude !== null ? Number(addressObj.longitude) : null,
     };
     const res = await api.post("/orders/place", payload);
     return normalizeOrder(res.data);

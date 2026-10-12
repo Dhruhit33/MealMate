@@ -7,6 +7,8 @@ import com.foodDelivery.delivery_service.service.DeliveryService;
 import com.foodDelivery.delivery_service.service.DriverMatchingService;
 import com.foodDelivery.delivery_service.service.JwtService;
 import com.foodDelivery.delivery_service.service.TrackingService;
+import com.foodDelivery.delivery_service.kafka.DriverLocationProducer;
+import com.foodDelivery.delivery_service.kafka.event.DriverLocationEvent;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,7 @@ public class DriverController {
     private final DriverMatchingService driverMatchingService;
     private final TrackingService trackingService;
     private final JwtService jwtService;
+    private final DriverLocationProducer driverLocationProducer;
 
     //driver register
     @PostMapping("/register")
@@ -75,21 +78,22 @@ public class DriverController {
             @RequestHeader("Authorization") String authHeader,
             @RequestBody LocationPayload payload) {
 
-        // Update Redis GEO
-        driverMatchingService.updateDriverLocation(
-                payload.getDriverId(),
-                payload.getLatitude(),
-                payload.getLongitude()
-        );
+        if (payload.getDriverId() == null || payload.getLatitude() == null || payload.getLongitude() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "driverId, latitude, and longitude are required"));
+        }
 
-        // Broadcast to user via WebSocket
-        trackingService.broadcastDriverLocation(
-                payload.getDriverId(),
-                payload.getLatitude(),
-                payload.getLongitude()
-        );
+        // Publish to Regional Kafka Topic (Partitioned by driverId)
+        driverLocationProducer.publishLocation(DriverLocationEvent.builder()
+                .driverId(payload.getDriverId())
+                .orderId(payload.getOrderId())
+                .latitude(payload.getLatitude())
+                .longitude(payload.getLongitude())
+                .region(payload.getRegion())
+                .timestamp(payload.getTimestamp() != null ? payload.getTimestamp() : System.currentTimeMillis())
+                .build());
 
-        return ResponseEntity.ok(Map.of("message", "Location updated"));
+        String resolved = DriverLocationProducer.resolveRegion(payload.getLatitude(), payload.getLongitude(), payload.getRegion());
+        return ResponseEntity.ok(Map.of("message", "Location published to Kafka", "region", resolved));
     }
 
     /**

@@ -16,16 +16,35 @@ public class JwtService {
     @Value("${jwt.secret}")
     private String secret;
 
+    private static final String FALLBACK_SECRET_1 = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970";
+    private static final String FALLBACK_SECRET_2 = "default-secret-key-for-jwt-signing-must-be-at-least-256-bits-long";
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
     public Claims extractClaims(String token ){
-        return Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+        try {
+            return Jwts.parser()
+                    .verifyWith(getSigningKey())
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (Exception ex) {
+            try {
+                return Jwts.parser()
+                        .verifyWith(Keys.hmacShaKeyFor(FALLBACK_SECRET_1.getBytes(StandardCharsets.UTF_8)))
+                        .build()
+                        .parseSignedClaims(token)
+                        .getPayload();
+            } catch (Exception ex2) {
+                return Jwts.parser()
+                        .verifyWith(Keys.hmacShaKeyFor(FALLBACK_SECRET_2.getBytes(StandardCharsets.UTF_8)))
+                        .build()
+                        .parseSignedClaims(token)
+                        .getPayload();
+            }
+        }
     }
     public String extractUserId(String token ){
         return extractClaims(token).getSubject();

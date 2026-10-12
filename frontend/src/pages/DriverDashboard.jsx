@@ -38,8 +38,9 @@ const DELIVERY_STATUS = {
   PICKED_UP:       { label: "Picked Up",     color: TC,        bg: `${TC}12` },
   IN_TRANSIT:      { label: "In Transit",    color: TC_SOFT,   bg: `${TC_SOFT}12` },
   DELIVERED:       { label: "Delivered",     color: SUCCESS,   bg: "#ECFDF5" },
-  CANCELLED:       { label: "Cancelled",    color: "#DC2626", bg: "#FEF2F2" },
+  CANCELLED:       { label: "Cancelled",     color: "#DC2626", bg: "#FEF2F2" },
   FAILED:          { label: "Failed",        color: "#DC2626", bg: "#FEF2F2" },
+  DECLINED:        { label: "Declined",      color: "#DC2626", bg: "#FEF2F2" },
 };
 
 function MapFlyTo({ center }) {
@@ -560,8 +561,23 @@ function HistoryPanel({ deliveries }) {
       {/* List */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {list.slice(0, 20).map((d, i) => {
-          const status = d.deliveryStatus || d.status || "DELIVERED";
-          const meta   = DELIVERY_STATUS[status] || DELIVERY_STATUS.DELIVERED;
+          const status = (d.deliveryStatus || d.status || "PENDING").toUpperCase();
+          const isDelivered = status === "DELIVERED" || status === "COMPLETED";
+          const isCancelled = status === "CANCELLED" || status === "FAILED";
+          const isDeclined  = status === "DECLINED";
+          const meta   = DELIVERY_STATUS[status] || (isCancelled ? DELIVERY_STATUS.CANCELLED : (isDeclined ? DELIVERY_STATUS.DECLINED : DELIVERY_STATUS.PENDING));
+          
+          let dateStr = "—";
+          if (d.createdAt) {
+            if (Array.isArray(d.createdAt)) {
+              const dt = new Date(d.createdAt[0], (d.createdAt[1] || 1) - 1, d.createdAt[2] || 1, d.createdAt[3] || 0, d.createdAt[4] || 0);
+              dateStr = !isNaN(dt.getTime()) ? dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+            } else {
+              const dt = new Date(d.createdAt);
+              dateStr = !isNaN(dt.getTime()) ? dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+            }
+          }
+
           return (
             <div key={d.deliveryId || i} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -569,24 +585,30 @@ function HistoryPanel({ deliveries }) {
               animation: `fade-up 0.3s ease-out ${i * 0.03}s both`,
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, background: `${meta.color}12`,
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: meta.bg,
                   display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem" }}>
-                  🛵
+                  {isCancelled || isDeclined ? "❌" : isDelivered ? "✅" : "🛵"}
                 </div>
                 <div>
                   <div style={{ fontSize: "0.88rem", fontWeight: 600, color: INK }}>
                     Order #{(d.orderId || d.deliveryId || "").slice(-6).toUpperCase()}
                   </div>
                   <div style={{ fontSize: "0.74rem", color: INK_MUTED, marginTop: 2 }}>
-                    {d.createdAt ? new Date(d.createdAt).toLocaleDateString("en-IN") : "—"}
+                    {dateStr}
                   </div>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                {(d.deliveryFee || d.earnings) && (
+                {isCancelled ? (
+                  <span style={{ fontSize: "0.78rem", color: "#DC2626", fontWeight: 600 }}>₹0 (Cancelled)</span>
+                ) : isDeclined ? (
+                  <span style={{ fontSize: "0.78rem", color: "#DC2626", fontWeight: 600 }}>₹0 (Declined)</span>
+                ) : isDelivered ? (
                   <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", color: SAFFRON }}>
-                    ₹{parseFloat(d.deliveryFee || d.earnings || 0).toFixed(0)}
+                    +₹{parseFloat(d.deliveryFee || d.earnings || 30).toFixed(0)}
                   </span>
+                ) : (
+                  <span style={{ fontSize: "0.78rem", color: SAFFRON, fontWeight: 600 }}>In Progress</span>
                 )}
                 <span style={{ padding: "4px 12px", borderRadius: 999, background: meta.bg,
                   color: meta.color, fontSize: "0.7rem", fontWeight: 700 }}>

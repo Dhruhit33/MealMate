@@ -69,15 +69,38 @@ public class OrderService {
 
         // 5. Publish order-placed event to Kafka
         try {
+            BigDecimal pickupLat = null;
+            BigDecimal pickupLng = null;
+            BigDecimal[] restCoords = fetchRestaurantCoordinates(cart.getRestaurantId());
+            if (restCoords != null) {
+                pickupLat = restCoords[0];
+                pickupLng = restCoords[1];
+            }
+
+            BigDecimal dropoffLat = request.getLatitude();
+            BigDecimal dropoffLng = request.getLongitude();
+            if ((dropoffLat == null || dropoffLat.doubleValue() == 0) && request.getDeliverAddress() != null) {
+                String addrLower = request.getDeliverAddress().toLowerCase();
+                if (addrLower.contains("nirma") || addrLower.contains("tragad") || addrLower.contains("sg highway")) {
+                    dropoffLat = BigDecimal.valueOf(23.12639030);
+                    dropoffLng = BigDecimal.valueOf(72.54000890);
+                }
+            }
+
             orderEventProducer.sendOrderPlaced(OrderPlacedEvent.builder()
                     .orderId(savedOrder.getOrderId())
                     .userId(userId)
                     .userEmail(userEmail)
-                    .userName("Customer")
+                    .userName(request.getCustomerName() != null && !request.getCustomerName().isBlank() ? request.getCustomerName() : "Customer")
+                    .userPhone(request.getCustomerPhone())
                     .restaurantId(cart.getRestaurantId())
                     .restaurantName(cart.getRestaurantName())
                     .totalAmount(cart.getTotal())
                     .deliveryAddress(request.getDeliverAddress())
+                    .pickupLatitude(pickupLat)
+                    .pickupLongitude(pickupLng)
+                    .dropoffLatitude(dropoffLat)
+                    .dropoffLongitude(dropoffLng)
                     .specialInstructions(request.getSpecialInstructions())
                     .placedAt(savedOrder.getCreatedAt())
                     .build());
@@ -147,6 +170,24 @@ public class OrderService {
             order.setEstimatedDeliveryMins(request.getEstimatedMins());
         }
 
+        if (newStatus == Order.OrderStatus.CANCELLED) {
+            String cancelReason = request.getReason() != null && !request.getReason().isBlank()
+                    ? request.getReason()
+                    : "Cancelled by restaurant - item unavailable";
+            order.setCancellationReason(cancelReason);
+            try {
+                orderEventProducer.sendOrderCancelled(OrderCancelledEvent.builder()
+                        .orderId(orderId)
+                        .userId(order.getUserId())
+                        .restaurantId(order.getRestaurantId())
+                        .reason(cancelReason)
+                        .cancelledAt(order.getCancelledAt())
+                        .build());
+            } catch (Exception e) {
+                log.warn("Failed to publish order-cancelled event: {}", e.getMessage());
+            }
+        }
+
         Order savedOrder = orderRepository.save(order);
         log.info("Order {} status changed to {}", orderId, newStatus);
 
@@ -212,5 +253,25 @@ public class OrderService {
     public Order getOrderEntity(String orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+    }
+
+    private BigDecimal[] fetchRestaurantCoordinates(String restaurantId) {
+        if (restaurantId == null || restaurantId.isBlank()) return null;
+        try {
+            org.springframework.web.client.RestClient rc = org.springframework.web.client.RestClient.create();
+            java.util.Map res = rc.get()
+                    .uri("http://localhost:8082/restaurants/{id}", restaurantId)
+                    .retrieve()
+                    .body(java.util.Map.class);
+            if (res != null && res.get("latitude") != null && res.get("longitude") != null) {
+                return new BigDecimal[]{
+                        new BigDecimal(res.get("latitude").toString()),
+                        new BigDecimal(res.get("longitude").toString())
+                };
+            }
+        } catch (Exception e) {
+            log.warn("Could not fetch restaurant coordinates for {}: {}", restaurantId, e.getMessage());
+        }
+        return null;
     }
 }

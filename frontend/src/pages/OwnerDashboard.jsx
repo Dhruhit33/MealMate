@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useOwnerStore } from "../store/ownerStore";
 import { useAuthStore } from "../store/authStore";
+import MapLocationPicker from "../components/MapLocationPicker";
 
 // ─── Design tokens (matches FoodRush palette) ──────────────────────────────
 const INK        = "#1C1208";
@@ -1032,19 +1033,33 @@ function EmptyState({ icon: Icon, title, subtitle }) {
 function NoRestaurantView() {
   const { createRestaurant, fetchMyRestaurants } = useOwnerStore();
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ name: "", cuisineType: "", address: "" });
+  const [form, setForm] = useState({ name: "", cuisineType: "", address: "", latitude: "", longitude: "" });
   const [saving, setSaving] = useState(false);
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
 
   const handleCreate = async () => {
-    if (!form.name || !form.cuisineType) { toast.error("Name and cuisine are required"); return; }
+    if (!form.name?.trim() || !form.cuisineType?.trim()) {
+      toast.error("Name and cuisine are required");
+      return;
+    }
+    const lat = parseFloat(form.latitude);
+    const lng = parseFloat(form.longitude);
+    if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+      toast.error("Please confirm restaurant location on map first (Compulsory)!");
+      return;
+    }
     setSaving(true);
     try {
-      await createRestaurant(form);
+      await createRestaurant({
+        ...form,
+        latitude: lat,
+        longitude: lng,
+      });
       await fetchMyRestaurants();
       toast.success("Restaurant created! 🎉");
       setShow(false);
-    } catch {
-      toast.error("Failed to create restaurant");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.response?.data || "Failed to create restaurant");
     }
     setSaving(false);
   };
@@ -1076,7 +1091,24 @@ function NoRestaurantView() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <ModalField label="Restaurant Name" value={form.name} onChange={(v) => setForm((p) => ({ ...p, name: v }))} placeholder="e.g. Sharma's Kitchen" />
             <ModalField label="Cuisine Type" value={form.cuisineType} onChange={(v) => setForm((p) => ({ ...p, cuisineType: v }))} placeholder="e.g. North Indian" />
-            <ModalField label="Address" value={form.address} onChange={(v) => setForm((p) => ({ ...p, address: v }))} placeholder="Full address" />
+            <ModalField label="Address" value={form.address} onChange={(v) => setForm((p) => ({ ...p, address: v }))} placeholder="Full street address" />
+            
+            <MapLocationPicker
+              initialLat={form.latitude}
+              initialLng={form.longitude}
+              initialAddress={form.address}
+              onConfirmLocation={(loc) => {
+                setForm(p => ({
+                  ...p,
+                  latitude: loc.latitude.toString(),
+                  longitude: loc.longitude.toString(),
+                  address: p.address || loc.address,
+                }));
+                setIsLocationConfirmed(true);
+              }}
+              isCompulsory={true}
+              title="Pin Restaurant on Map (Compulsory)"
+            />
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
             <button onClick={() => setShow(false)} style={{ flex: 1, padding: "11px", borderRadius: 10,

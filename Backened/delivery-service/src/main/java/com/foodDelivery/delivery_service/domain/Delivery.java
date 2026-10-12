@@ -41,6 +41,9 @@ public class Delivery {
     @Column(name = "user_name")
     private String userName;
 
+    @Column(name = "user_phone", length = 30)
+    private String userPhone;
+
     @Column(name = "driver_id", length = 36)
     private String driverId;
 
@@ -57,6 +60,9 @@ public class Delivery {
 
     @Column(name = "pickup_address", length = 500)
     private String pickupAddress;
+
+    @Column(name = "restaurant_phone", length = 30)
+    private String restaurantPhone;
 
     // Customer location (drop-off point)
     @Column(name = "dropoff_latitude", precision = 10, scale = 8)

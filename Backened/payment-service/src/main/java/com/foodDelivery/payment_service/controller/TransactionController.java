@@ -23,9 +23,10 @@ public class TransactionController {
 
     @GetMapping
     public ResponseEntity<Map<String, Object>> getMyTransactions(
-            @RequestHeader("Authorization") String token) {
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token) {
 
-        String userId = extractUserId(token);
+        String userId = (xUserId != null && !xUserId.isBlank()) ? xUserId : extractUserId(token);
         List<TransactionResponse> transactions = transactionRepo
                 .findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()

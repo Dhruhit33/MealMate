@@ -24,13 +24,15 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, String> 
     @Query(value = """
             SELECT *, (
                 6371 * ACOS(
-                    COS(RADIANS(:lat)) * COS(RADIANS(latitude))
-                    * COS(RADIANS(longitude) - RADIANS(:lng))
-                    + SIN(RADIANS(:lat)) * SIN(RADIANS(latitude))
+                    LEAST(1.0, GREATEST(-1.0,
+                        COS(RADIANS(:lat)) * COS(RADIANS(latitude))
+                        * COS(RADIANS(longitude) - RADIANS(:lng))
+                        + SIN(RADIANS(:lat)) * SIN(RADIANS(latitude))
+                    ))
                 )
             ) AS distance_km
             FROM restaurants
-            WHERE is_open = true
+            WHERE (is_open = true OR is_open = 1 OR is_open IS NULL)
             HAVING distance_km <= :radius
             ORDER BY distance_km ASC
             """, nativeQuery = true)
@@ -44,13 +46,15 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, String> 
     @Query(value = """
             SELECT *, (
                 6371 * ACOS(
-                    COS(RADIANS(:lat)) * COS(RADIANS(latitude))
-                    * COS(RADIANS(longitude) - RADIANS(:lng))
-                    + SIN(RADIANS(:lat)) * SIN(RADIANS(latitude))
+                    LEAST(1.0, GREATEST(-1.0,
+                        COS(RADIANS(:lat)) * COS(RADIANS(latitude))
+                        * COS(RADIANS(longitude) - RADIANS(:lng))
+                        + SIN(RADIANS(:lat)) * SIN(RADIANS(latitude))
+                    ))
                 )
             ) AS distance_km
             FROM restaurants
-            WHERE is_open = true
+            WHERE (is_open = true OR is_open = 1 OR is_open IS NULL)
             AND LOWER(cuisine_type) LIKE LOWER(CONCAT('%', :cuisine, '%'))
             HAVING distance_km <= :radius
             ORDER BY distance_km ASC

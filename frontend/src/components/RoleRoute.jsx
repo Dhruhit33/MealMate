@@ -6,11 +6,27 @@ import { normaliseRole } from "../api/roles";
 
 export default function RoleRoute() {
   const { token, user, fetchProfile } = useAuthStore();
-  const [checking, setChecking] = useState(!user && !!token);
+
+  let effectiveToken = token;
+  let effectiveUser = user;
+  if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem("foodrush-auth");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.state?.token) {
+          effectiveToken = parsed.state.token;
+          effectiveUser = parsed.state.user || effectiveUser;
+        }
+      }
+    } catch (e) {}
+  }
+
+  const [checking, setChecking] = useState(!effectiveUser && !!effectiveToken);
 
   useEffect(() => {
     let isMounted = true;
-    if (token && !user) {
+    if (effectiveToken && !effectiveUser) {
       setChecking(true);
       fetchProfile()
         .catch(() => {})
@@ -21,12 +37,12 @@ export default function RoleRoute() {
       setChecking(false);
     }
     return () => { isMounted = false; };
-  }, [token, user]);
+  }, [effectiveToken, effectiveUser]);
 
-  if (!token) return <Navigate to="/login" replace />;
+  if (!effectiveToken) return <Navigate to="/login" replace />;
   if (checking) return <SkeletonPage />;
 
-  const role = normaliseRole(user?.role || "");
+  const role = normaliseRole(effectiveUser?.role || "");
   if (role === "RESTAURANT_OWNER") return <Navigate to="/owner" replace />;
   if (role === "DRIVER")           return <Navigate to="/driver" replace />;
   return <Navigate to="/" replace />;

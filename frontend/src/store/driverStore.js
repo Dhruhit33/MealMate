@@ -156,9 +156,19 @@ export const useDriverStore = create(
         return res.data;
       },
 
+      declineDelivery: async () => {
+        const res = await api.post("/delivery/decline");
+        set({ activeDelivery: null, isOnline: true });
+        try { await get().fetchProfile(); } catch {}
+        try { await get().fetchDeliveryHistory(); } catch {}
+        return res.data;
+      },
+
       completeDelivery: async () => {
         const res = await api.post("/delivery/complete");
-        set({ activeDelivery: null });
+        set({ activeDelivery: null, isOnline: true });
+        try { await get().fetchProfile(); } catch {}
+        try { await get().fetchDeliveryHistory(); } catch {}
         return res.data;
       },
     }),

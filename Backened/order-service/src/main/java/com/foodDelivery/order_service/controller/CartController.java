@@ -20,54 +20,61 @@ public class CartController {
 
     @PostMapping("/add")
     public ResponseEntity<CartResponse> addItem(
-            @RequestHeader("Authorization") String token,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @Valid @RequestBody CartItemRequest request) {
 
-        String userId = extractUserId(token);
+        String userId = resolveUserId(xUserId, token);
         return ResponseEntity.ok(cartService.addItem(userId, request));
     }
 
 
     @PutMapping("/update/{menuItemId}")
     public ResponseEntity<CartResponse> updateQuantity(
-            @RequestHeader("Authorization") String token,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @PathVariable String menuItemId,
             @RequestParam int quantity) {
 
-        String userId = extractUserId(token);
+        String userId = resolveUserId(xUserId, token);
         return ResponseEntity.ok(cartService.updateQuantity(userId, menuItemId, quantity));
     }
 
 
     @DeleteMapping("/remove/{menuItemId}")
     public ResponseEntity<CartResponse> removeItem(
-            @RequestHeader("Authorization") String token,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @PathVariable String menuItemId) {
 
-        String userId = extractUserId(token);
+        String userId = resolveUserId(xUserId, token);
         return ResponseEntity.ok(cartService.removeItem(userId, menuItemId));
     }
 
 
     @GetMapping
     public ResponseEntity<CartResponse> getCart(
-            @RequestHeader("Authorization") String token) {
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token) {
 
-        String userId = extractUserId(token);
+        String userId = resolveUserId(xUserId, token);
         return ResponseEntity.ok(cartService.getCart(userId));
     }
 
 
     @DeleteMapping("/clear")
     public ResponseEntity<String> clearCart(
-            @RequestHeader("Authorization") String token) {
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
+            @RequestHeader(value = "Authorization", required = false) String token) {
 
-        String userId = extractUserId(token);
+        String userId = resolveUserId(xUserId, token);
         cartService.clearCart(userId);
         return ResponseEntity.ok("Cart cleared");
     }
 
-    private String extractUserId(String token) {
-        return jwtService.extractUserId(token.replace("Bearer ", ""));
+    private String resolveUserId(String xUserId, String token) {
+        if (xUserId != null && !xUserId.isBlank()) return xUserId;
+        if (token != null && !token.isBlank()) return jwtService.extractUserId(token.replace("Bearer ", ""));
+        return null;
     }
 }

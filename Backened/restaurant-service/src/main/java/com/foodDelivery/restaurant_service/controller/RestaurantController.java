@@ -90,7 +90,7 @@ public class RestaurantController {
     public ResponseEntity<List<RestaurantResponse>> nearby(
             @RequestParam double lat,
             @RequestParam double lng,
-            @RequestParam(defaultValue = "5") double radius,
+            @RequestParam(defaultValue = "25") double radius,
             @RequestParam(required = false) String cuisine) {
 
         return ResponseEntity.ok(restaurantService.findNearBy(lat, lng, radius, cuisine));

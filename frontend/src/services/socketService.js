@@ -132,12 +132,19 @@ class SocketService {
     return this._subscribe(topic, callback);
   }
 
-  sendDriverLocation(orderId, driverId, lat, lng) {
+  sendDriverLocation(orderId, driverId, lat, lng, region = "ahmedabad") {
     if (!stompClient || !this.connected) return;
     try {
       stompClient.publish({
         destination: "/app/driver-location",
-        body: JSON.stringify({ orderId, driverId, latitude: lat, longitude: lng }),
+        body: JSON.stringify({
+          orderId,
+          driverId,
+          latitude: lat,
+          longitude: lng,
+          region,
+          timestamp: Date.now(),
+        }),
       });
     } catch (err) {
       console.warn("[Socket] Send location error:", err);

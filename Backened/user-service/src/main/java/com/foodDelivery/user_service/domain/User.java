@@ -29,6 +29,7 @@ public class User {
     @Column(nullable = false)
     private Role role;
 
+    @Column(columnDefinition = "LONGTEXT")
     private String profileImageUrl;
 
     @Column(updatable = false)

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import { Loader2, Save, MapPin, Navigation } from "lucide-react";
 import { useOwnerStore } from "../../store/ownerStore";
+import MapLocationPicker from "../../components/MapLocationPicker";
 
 const INK      = "#1C1208";
 const INK_MUTED = "rgba(28,18,8,0.38)";
@@ -38,6 +39,7 @@ export default function OwnerSettings() {
   const [saving, setSaving] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
   // Track if geocode was already done for this address to avoid repeating
   const geocodedAddress = useRef("");
 
@@ -54,6 +56,9 @@ export default function OwnerSettings() {
         latitude: currentRestaurant.latitude || "",
         longitude: currentRestaurant.longitude || "",
       });
+      if (currentRestaurant.latitude && currentRestaurant.longitude) {
+        setIsLocationConfirmed(true);
+      }
       if (currentRestaurant.address) geocodedAddress.current = currentRestaurant.address;
     }
   }, [currentRestaurant?.restaurantId]);
@@ -97,24 +102,27 @@ export default function OwnerSettings() {
     if (!form.cuisineType?.trim()) return toast.error("Cuisine type is required");
     if (!form.address?.trim()) return toast.error("Address is required");
 
-    // Auto-geocode if missing coords
-    let lat = form.latitude;
-    let lng = form.longitude;
-    if (!lat || !lng) {
-      toast("Detecting location...", { icon: "📍" });
-      const coords = await geocodeAddress(form.address);
-      if (coords) {
-        lat = coords.lat.toString();
-        lng = coords.lng.toString();
-        setForm(p => ({ ...p, latitude: lat, longitude: lng }));
-      } else {
-        return toast.error("Could not find coordinates. Please use 'Detect Location' or enter manually.");
-      }
+    const lat = parseFloat(form.latitude);
+    const lng = parseFloat(form.longitude);
+
+    // Compulsory check: restaurant location MUST be confirmed on map
+    if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+      return toast.error("Please choose and confirm restaurant location on the map (Compulsory)!");
     }
 
     setSaving(true);
     try {
-      const payload = { ...form, latitude: lat, longitude: lng };
+      const payload = {
+        name: form.name.trim(),
+        description: form.description?.trim() || "",
+        cuisineType: form.cuisineType.trim(),
+        address: form.address.trim(),
+        phone: form.phone?.trim() || "",
+        imageUrl: form.imageUrl || "",
+        minOrderAmount: form.minOrderAmount ? parseFloat(form.minOrderAmount) : 0,
+        latitude: lat,
+        longitude: lng,
+      };
       if (isNew) {
         await createRestaurant(payload);
         await fetchMyRestaurants();
@@ -186,10 +194,51 @@ export default function OwnerSettings() {
               onBlur={e => e.target.style.borderColor = "transparent"} />
           </FieldRow>
         </div>
-        <FieldRow label="Restaurant Image URL">
-          <input value={form.imageUrl} onChange={handleChange("imageUrl")} placeholder="https://example.com/image.jpg"
-            style={inputStyle} onFocus={e => e.target.style.borderColor = TC_SOFT}
-            onBlur={e => e.target.style.borderColor = "transparent"} />
+        <FieldRow label="Restaurant Image (URL or Upload File)">
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input value={form.imageUrl} onChange={handleChange("imageUrl")} placeholder="https://example.com/image.jpg or upload below"
+              style={{ ...inputStyle, flex: 1 }} onFocus={e => e.target.style.borderColor = TC_SOFT}
+              onBlur={e => e.target.style.borderColor = "transparent"} />
+            <label style={{
+              padding: "10px 14px", borderRadius: 10, background: "#E8DEC8", color: INK,
+              fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", display: "flex",
+              alignItems: "center", gap: 5, whiteSpace: "nowrap"
+            }}>
+              📁 Upload
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    setForm(p => ({ ...p, imageUrl: ev.target.result }));
+                    toast.success("Restaurant image uploaded! ✓");
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </label>
+            {form.imageUrl && (
+              <button
+                type="button"
+                onClick={() => setForm(p => ({ ...p, imageUrl: "" }))}
+                style={{
+                  padding: "10px 12px", borderRadius: 10, background: "#FEE2E2", color: "#DC2626",
+                  border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: 700
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {form.imageUrl && (
+            <div style={{ marginTop: 8, height: 110, borderRadius: 10, overflow: "hidden", background: "#E8DEC8", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <img src={form.imageUrl} alt="Restaurant Preview" style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }} onError={(e) => { e.target.style.display = "none"; }} />
+            </div>
+          )}
         </FieldRow>
       </SettingsSection>
 
@@ -201,43 +250,23 @@ export default function OwnerSettings() {
             onBlur={e => { e.target.style.borderColor = "transparent"; handleAddressBlur(); }} />
         </FieldRow>
 
-        {/* Detect location button */}
-        <button type="button" onClick={handleDetectLocation} disabled={locating}
-          style={{ width: "100%", padding: "11px", borderRadius: 10, marginBottom: 18,
-            border: `1.5px dashed ${TC_SOFT}`, background: `${TC}06`, color: TC_SOFT,
-            fontSize: "0.88rem", fontWeight: 600, fontFamily: "var(--font-sans)",
-            cursor: locating ? "not-allowed" : "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          {locating
-            ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Detecting...</>
-            : <><Navigation size={14} /> Use My Current Location</>}
-        </button>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <FieldRow label="Latitude" required>
-            <input value={form.latitude} onChange={handleChange("latitude")} placeholder="e.g. 28.6139" type="number" step="any"
-              style={inputStyle} onFocus={e => e.target.style.borderColor = TC_SOFT}
-              onBlur={e => e.target.style.borderColor = "transparent"} />
-          </FieldRow>
-          <FieldRow label="Longitude" required>
-            <input value={form.longitude} onChange={handleChange("longitude")} placeholder="e.g. 77.2090" type="number" step="any"
-              style={inputStyle} onFocus={e => e.target.style.borderColor = TC_SOFT}
-              onBlur={e => e.target.style.borderColor = "transparent"} />
-          </FieldRow>
-        </div>
-
-        {/* Status indicator */}
-        <div style={{ padding: "10px 14px", borderRadius: 10, marginBottom: 4,
-          background: hasCoords ? `${SUCCESS}08` : `${SAFFRON}08`,
-          border: `1px solid ${hasCoords ? SUCCESS + "20" : SAFFRON + "20"}`,
-          display: "flex", alignItems: "center", gap: 8, fontSize: "0.8rem" }}>
-          <MapPin size={14} style={{ color: hasCoords ? SUCCESS : SAFFRON, flexShrink: 0 }} />
-          <span style={{ color: hasCoords ? SUCCESS : SAFFRON }}>
-            {geocoding ? "Auto-detecting from address..." :
-             hasCoords ? `Location set: ${parseFloat(form.latitude).toFixed(4)}, ${parseFloat(form.longitude).toFixed(4)}` :
-             "Enter address above — coordinates will auto-detect on blur, or use the button above"}
-          </span>
-        </div>
+        {/* Interactive Map Location Picker (Compulsory) */}
+        <MapLocationPicker
+          initialLat={form.latitude}
+          initialLng={form.longitude}
+          initialAddress={form.address}
+          onConfirmLocation={(loc) => {
+            setForm(p => ({
+              ...p,
+              latitude: loc.latitude.toString(),
+              longitude: loc.longitude.toString(),
+              address: p.address || loc.address,
+            }));
+            setIsLocationConfirmed(true);
+          }}
+          isCompulsory={true}
+          title="Pin Restaurant Kitchen Location on Map (Compulsory)"
+        />
       </SettingsSection>
 
       {/* Delivery settings */}

@@ -253,8 +253,8 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      {/* Track order button — for any active order */}
-      {!isCancelled && !isDelivered && (
+      {/* Track order button — for active & completed orders */}
+      {!isCancelled && (
         <div style={{
           background: `linear-gradient(135deg, #1A1814 0%, #2D2520 100%)`,
           borderRadius: 18, padding: "20px 24px", marginBottom: 20,
@@ -266,10 +266,16 @@ export default function OrderDetailPage() {
             borderRadius: "50%", background: `${TERRACOTTA}18`, pointerEvents: "none" }} />
           <div>
             <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#FFF5E6", marginBottom: 4 }}>
-              {order.status === "PICKED_UP" ? "🛵 Your order is on the way!" : "📦 Track your order live"}
+              {isDelivered
+                ? "🎉 Order Delivered Successfully"
+                : order.status === "PICKED_UP"
+                  ? "🛵 Your order is on the way!"
+                  : "📦 Track your order live"}
             </div>
-            <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.5)" }}>
-              {order.status === "PICKED_UP" ? "See your delivery partner on the map" : "Follow every step in real-time"}
+            <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.6)" }}>
+              {isDelivered
+                ? "View full delivery road route and driver summary"
+                : "Follow driver location, road distance, and live ETA on the map"}
             </div>
           </div>
           <button onClick={() => navigate(`/orders/${orderId}/track`)} style={{
@@ -285,7 +291,7 @@ export default function OrderDetailPage() {
             onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
           >
-            <Navigation size={15} /> Track Order
+            <Navigation size={15} /> {isDelivered ? "View Route & Tracking" : "Track Order"}
           </button>
         </div>
       )}

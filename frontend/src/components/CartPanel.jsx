@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight, Tag } from "lucide-react";
 import { useCartStore } from "../store/cartStore";
@@ -35,11 +35,21 @@ function VegDot({ isVeg }) {
 
 export default function CartPanel({ open, onClose }) {
   const navigate = useNavigate();
-  const { items, restaurantName, getTotal, getItemCount, updateQuantity, clearCart } = useCartStore();
+  const items = useCartStore((s) => s.items);
+  const restaurantName = useCartStore((s) => s.restaurantName);
+  const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const clearCart = useCartStore((s) => s.clearCart);
+  const fetchCart = useCartStore((s) => s.fetchCart);
   const [clearing, setClearing] = useState(false);
 
-  const total = getTotal();
-  const itemCount = getItemCount();
+  useEffect(() => {
+    if (open) {
+      fetchCart();
+    }
+  }, [open, fetchCart]);
+
+  const total = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.quantity || 1), 0);
+  const itemCount = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
 
   // Fee logic: free delivery above ₹499, else ₹29
   const deliveryFee = total >= 499 ? 0 : 29;
@@ -167,59 +177,62 @@ export default function CartPanel({ open, onClose }) {
             </div>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {items.map((item,i)=>(
-                <div key={item.menuItemId} style={{
-                  background:CARD, borderRadius:14,
-                  border:`1px solid ${INK_HAIR}`,
-                  padding:"13px 15px",
-                  display:"flex", alignItems:"center", gap:13,
-                  animation:`fade-up 0.3s ease-out ${i*0.04}s both`,
-                }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
-                      <VegDot isVeg={item.isVeg} />
-                      <span style={{ fontSize:"0.9rem", fontWeight:600, color:INK,
-                        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                        {item.name}
-                      </span>
-                    </div>
-                    <p style={{
-                      fontSize:"0.86rem", color:TC_DEEP,
-                      fontFamily:"var(--font-display)", fontWeight:700,
-                    }}>₹{(item.price*item.quantity).toFixed(0)}</p>
-                    {item.quantity>1&&(
-                      <p style={{ fontSize:"0.7rem", color:INK_MUTED, marginTop:1 }}>
-                        ₹{item.price} × {item.quantity}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Qty controls */}
-                  <div style={{
-                    display:"flex", alignItems:"center", gap:6,
-                    background:FIELD, borderRadius:10, padding:"4px 6px",
+              {items.map((item,i)=>{
+                const itemId = item.menuItemId || item.itemId || item.id;
+                return (
+                  <div key={itemId || i} style={{
+                    background:CARD, borderRadius:14,
+                    border:`1px solid ${INK_HAIR}`,
+                    padding:"13px 15px",
+                    display:"flex", alignItems:"center", gap:13,
+                    animation:`fade-up 0.3s ease-out ${i*0.04}s both`,
                   }}>
-                    <button onClick={()=>updateQuantity(item.menuItemId,item.quantity-1)} style={{
-                      width:26, height:26, borderRadius:7, border:"none",
-                      background:item.quantity===1?`${NONVEG}15`:`${TC}14`,
-                      color:item.quantity===1?NONVEG:TC_DEEP,
-                      cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
-                      transition:"all 0.15s",
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                        <VegDot isVeg={item.isVeg} />
+                        <span style={{ fontSize:"0.9rem", fontWeight:600, color:INK,
+                          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          {item.name}
+                        </span>
+                      </div>
+                      <p style={{
+                        fontSize:"0.86rem", color:TC_DEEP,
+                        fontFamily:"var(--font-display)", fontWeight:700,
+                      }}>₹{(Number(item.price || 0)*Number(item.quantity || 1)).toFixed(0)}</p>
+                      {item.quantity>1&&(
+                        <p style={{ fontSize:"0.7rem", color:INK_MUTED, marginTop:1 }}>
+                          ₹{item.price} × {item.quantity}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Qty controls */}
+                    <div style={{
+                      display:"flex", alignItems:"center", gap:6,
+                      background:FIELD, borderRadius:10, padding:"4px 6px",
                     }}>
-                      {item.quantity===1?<Trash2 size={11}/>:<Minus size={11}/>}
-                    </button>
-                    <span style={{ fontSize:"0.9rem", fontWeight:700, color:INK,
-                      minWidth:18, textAlign:"center" }}>{item.quantity}</span>
-                    <button onClick={()=>updateQuantity(item.menuItemId,item.quantity+1)} style={{
-                      width:26, height:26, borderRadius:7, border:"none",
-                      background:`${TC}14`, color:TC_DEEP,
-                      cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
-                    }}>
-                      <Plus size={11}/>
-                    </button>
+                      <button onClick={()=>updateQuantity(itemId,item.quantity-1)} style={{
+                        width:26, height:26, borderRadius:7, border:"none",
+                        background:item.quantity===1?`${NONVEG}15`:`${TC}14`,
+                        color:item.quantity===1?NONVEG:TC_DEEP,
+                        cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                        transition:"all 0.15s",
+                      }}>
+                        {item.quantity===1?<Trash2 size={11}/>:<Minus size={11}/>}
+                      </button>
+                      <span style={{ fontSize:"0.9rem", fontWeight:700, color:INK,
+                        minWidth:18, textAlign:"center" }}>{item.quantity}</span>
+                      <button onClick={()=>updateQuantity(itemId,item.quantity+1)} style={{
+                        width:26, height:26, borderRadius:7, border:"none",
+                        background:`${TC}14`, color:TC_DEEP,
+                        cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                      }}>
+                        <Plus size={11}/>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

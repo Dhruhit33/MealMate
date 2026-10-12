@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { DollarSign, Package, History } from "lucide-react";
+import { DollarSign, Package, History, CheckCircle, XCircle } from "lucide-react";
 import { useDriverStore } from "../../store/driverStore";
 
 const TC      = "#C0401E";
@@ -14,26 +14,57 @@ const CARD    = "#FFF9EE";
 const FIELD   = "#F5ECD8";
 
 const STATUS_MAP = {
-  DELIVERED: { label: "Delivered", color: SUCCESS,  bg: `${SUCCESS}12` },
-  FAILED:    { label: "Failed",    color: "#DC2626", bg: "#DC262612" },
-  ASSIGNED:  { label: "Assigned",  color: SAFFRON,  bg: `${SAFFRON}12` },
-  PICKED_UP: { label: "Picked Up", color: TC,        bg: `${TC}12` },
+  DELIVERED:       { label: "Delivered",   color: SUCCESS,   bg: `${SUCCESS}14`, emoji: "✅" },
+  CANCELLED:       { label: "Cancelled",   color: "#DC2626", bg: "#FEE2E2",     emoji: "❌" },
+  FAILED:          { label: "Failed",      color: "#DC2626", bg: "#FEE2E2",     emoji: "⚠️" },
+  DECLINED:        { label: "Declined",    color: "#DC2626", bg: "#FEE2E2",     emoji: "❌" },
+  DRIVER_ASSIGNED: { label: "Assigned",    color: SAFFRON,   bg: `${SAFFRON}14`, emoji: "🛵" },
+  ASSIGNED:        { label: "Assigned",    color: SAFFRON,   bg: `${SAFFRON}14`, emoji: "🛵" },
+  PICKED_UP:       { label: "Picked Up",   color: TC,        bg: `${TC}14`,      emoji: "🛍️" },
+  IN_TRANSIT:      { label: "In Transit",  color: TC,        bg: `${TC}14`,      emoji: "🛵" },
+  PENDING:         { label: "Pending",     color: INK_MUTED, bg: `${INK_MUTED}14`, emoji: "⏳" },
 };
+
+function parseSafeDate(val) {
+  if (!val) return null;
+  if (Array.isArray(val)) {
+    const d = new Date(val[0], (val[1] || 1) - 1, val[2] || 1, val[3] || 0, val[4] || 0, val[5] || 0);
+    return !isNaN(d.getTime()) ? d : null;
+  }
+  const d = new Date(val);
+  return !isNaN(d.getTime()) ? d : null;
+}
+
+function formatSafeDateTime(val) {
+  const dt = parseSafeDate(val);
+  if (!dt) return "Today";
+  const dateStr = dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const timeStr = dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  return `${dateStr} · ${timeStr}`;
+}
 
 export default function DriverHistory() {
   const { deliveryHistory, fetchDeliveryHistory } = useDriverStore();
 
   useEffect(() => { fetchDeliveryHistory().catch(() => {}); }, []);
 
-  const list      = Array.isArray(deliveryHistory) ? deliveryHistory : [];
-  const done      = list.filter(d => d.status === "DELIVERED" || d.deliveryStatus === "DELIVERED");
-  const earnings  = done.reduce((s, d) => s + parseFloat(d.deliveryFee || d.earnings || 0), 0);
-  const today     = done.filter(d => {
-    if (!d.createdAt) return false;
-    const dt = new Date(d.createdAt);
-    const now = new Date();
+  const list = Array.isArray(deliveryHistory) ? deliveryHistory : [];
+
+  // Count and earnings ONLY for actually completed deliveries
+  const done = list.filter(d => {
+    const s = (d.status || d.deliveryStatus || "").toUpperCase();
+    return s === "DELIVERED";
+  });
+
+  const earnings = done.reduce((s, d) => s + parseFloat(d.deliveryFee || d.earnings || 0), 0);
+
+  const now = new Date();
+  const today = done.filter(d => {
+    const dt = parseSafeDate(d.deliveredAt || d.createdAt);
+    if (!dt) return false;
     return dt.toDateString() === now.toDateString();
   });
+
   const todayEarnings = today.reduce((s, d) => s + parseFloat(d.deliveryFee || d.earnings || 0), 0);
 
   return (
@@ -67,7 +98,7 @@ export default function DriverHistory() {
         <div style={{ textAlign: "center" }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", color: INK }}>{done.length}</div>
           <div style={{ fontSize: "0.7rem", color: INK_MUTED, textTransform: "uppercase",
-            letterSpacing: "0.06em", marginTop: 2 }}>Total Deliveries</div>
+            letterSpacing: "0.06em", marginTop: 2 }}>Completed</div>
         </div>
         <div style={{ width: 1, background: INK_HAIR }} />
         <div style={{ textAlign: "center" }}>
@@ -96,36 +127,52 @@ export default function DriverHistory() {
           background: CARD, borderRadius: 20, border: `1.5px dashed ${INK_HAIR}` }}>
           <History size={36} style={{ color: INK_MUTED, margin: "0 auto 14px", display: "block" }} />
           <p style={{ fontSize: "0.9rem", fontWeight: 600, color: INK, marginBottom: 4 }}>No deliveries yet</p>
-          <p style={{ fontSize: "0.82rem", color: INK_MUTED }}>Your completed trips will appear here</p>
+          <p style={{ fontSize: "0.82rem", color: INK_MUTED }}>Your trips will appear here</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {list.slice().reverse().map((d, i) => {
-            const status = d.deliveryStatus || d.status || "DELIVERED";
-            const meta   = STATUS_MAP[status] || STATUS_MAP.DELIVERED;
-            const earn   = parseFloat(d.deliveryFee || d.earnings || 0);
-            const date   = d.createdAt ? new Date(d.createdAt) : null;
+            const rawStatus   = (d.status || d.deliveryStatus || "PENDING").toUpperCase();
+            const isDelivered = rawStatus === "DELIVERED" || rawStatus === "COMPLETED";
+            const isCancelled = rawStatus === "CANCELLED" || rawStatus === "FAILED";
+            const isDeclined  = rawStatus === "DECLINED";
+            const meta        = STATUS_MAP[rawStatus] || (isCancelled ? STATUS_MAP.CANCELLED : (isDeclined ? STATUS_MAP.DECLINED : STATUS_MAP.PENDING));
+            const earn        = isDelivered ? parseFloat(d.deliveryFee || d.earnings || 30) : 0;
+            const formattedDt = formatSafeDateTime(d.deliveredAt || d.createdAt);
+
             return (
               <div key={d.deliveryId || i} style={{ background: CARD, borderRadius: 14,
                 padding: "14px 18px", border: `1px solid ${INK_HAIR}`,
                 display: "flex", alignItems: "center", gap: 14 }}>
-                <div style={{ width: 42, height: 42, borderRadius: 12, background: `${meta.color}12`,
+                <div style={{ width: 42, height: 42, borderRadius: 12, background: meta.bg,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "1.3rem", flexShrink: 0 }}>🛵</div>
+                  fontSize: "1.2rem", flexShrink: 0 }}>
+                  {meta.emoji}
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>
                     Order #{(d.orderId || d.deliveryId || "").slice(-6).toUpperCase()}
                   </div>
                   <div style={{ fontSize: "0.74rem", color: INK_MUTED, marginTop: 2 }}>
-                    {date ? date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                      : "—"}
-                    {date && ` · ${date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`}
+                    {formattedDt}
                   </div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                  {earn > 0 && (
-                    <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", color: SAFFRON, fontWeight: 500 }}>
+                  {isCancelled ? (
+                    <span style={{ fontSize: "0.76rem", color: "#DC2626", fontWeight: 700 }}>
+                      ₹0 (Cancelled)
+                    </span>
+                  ) : isDeclined ? (
+                    <span style={{ fontSize: "0.76rem", color: "#DC2626", fontWeight: 700 }}>
+                      ₹0 (Declined)
+                    </span>
+                  ) : isDelivered ? (
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", color: SAFFRON, fontWeight: 700 }}>
                       +₹{earn.toFixed(0)}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: "0.76rem", color: SAFFRON, fontWeight: 700 }}>
+                      In Progress
                     </span>
                   )}
                   <span style={{ padding: "3px 10px", borderRadius: 999, background: meta.bg,

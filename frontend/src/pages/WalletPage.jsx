@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Loader2, Plus, ArrowDownLeft, ArrowUpRight, Wallet } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Loader2, Plus, ArrowDownLeft, ArrowUpRight, Wallet, ArrowLeft } from "lucide-react";
 import toast from "react-hot-toast";
 import { useWalletStore } from "../store/walletStore";
 
@@ -18,6 +19,7 @@ const VEG = "#4A7C2B";
 const QUICK_AMOUNTS = [100, 200, 500, 1000];
 
 export default function WalletPage() {
+  const navigate = useNavigate();
   const { balance, transactions, loading, fetchBalance, addFunds, fetchTransactions } = useWalletStore();
   const [amount, setAmount] = useState("");
   const [adding, setAdding] = useState(false);
@@ -54,6 +56,30 @@ export default function WalletPage() {
 
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", animation: "fade-up 0.4s ease-out" }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 16px",
+          borderRadius: 999,
+          border: `1px solid ${INK_HAIR}`,
+          background: CARD,
+          color: INK_SOFT,
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
+          fontFamily: "var(--font-sans)",
+          transition: "all 0.2s ease",
+          boxShadow: "0 1px 3px rgba(43,29,18,0.04)",
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
       <h1 style={{
         fontFamily: "var(--font-display)", fontSize: "2rem",
         fontWeight: 500, letterSpacing: "-0.02em", color: INK, marginBottom: 28,

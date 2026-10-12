@@ -32,8 +32,23 @@ export default function VerifyOtpPage() {
 
   // If already authenticated, redirect to expected dashboard
   useEffect(() => {
-    if (token && user) {
-      const role = normaliseRole(user.role);
+    let effectiveToken = token;
+    let effectiveUser = user;
+    if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem("foodrush-auth");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.state?.token) {
+            effectiveToken = parsed.state.token;
+            effectiveUser = parsed.state.user || effectiveUser;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (effectiveToken && effectiveUser) {
+      const role = normaliseRole(effectiveUser.role);
       if (role === "DRIVER") navigate("/driver", { replace: true });
       else if (role === "RESTAURANT_OWNER") navigate("/owner", { replace: true });
       else navigate("/", { replace: true });
