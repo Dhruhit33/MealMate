@@ -1,0 +1,7 @@
+aws_region              = "ap-south-1"
+project_name            = "mealmate"
+environment             = "demo"
+db_username             = "mealmate_admin"
+db_password             = "MealMateFreeTier2026!"
+enable_scheduler_lambda = true
+instance_type           = "t4g.micro"

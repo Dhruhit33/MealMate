@@ -30,10 +30,13 @@ export default function SearchPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const q = params.get("q") || "";
-  const [query, setQuery] = useState(q);
-  const { searchResults, loading, searchRestaurants } = useRestaurantStore();
+  const { searchResults, loading, searchRestaurants, currentLocation } = useRestaurantStore();
 
-  useEffect(() => { if (q) searchRestaurants(q); }, [q]);
+  useEffect(() => {
+    if (q) {
+      searchRestaurants(q, currentLocation?.lat, currentLocation?.lng, currentLocation?.radius || 25);
+    }
+  }, [q, currentLocation?.lat, currentLocation?.lng]);
 
   const handleSubmit = (e) => {
     e.preventDefault();

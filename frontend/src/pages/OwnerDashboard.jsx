@@ -10,7 +10,7 @@ import { useOwnerStore } from "../store/ownerStore";
 import { useAuthStore } from "../store/authStore";
 import MapLocationPicker from "../components/MapLocationPicker";
 
-// ─── Design tokens (matches FoodRush palette) ──────────────────────────────
+// ─── Design tokens (matches MealMate palette) ──────────────────────────────
 const INK        = "#1C1208";
 const INK_SOFT   = "rgba(28,18,8,0.58)";
 const INK_MUTED  = "rgba(28,18,8,0.38)";
@@ -46,6 +46,44 @@ const TABS = [
   { id: "menu",      label: "Menu",          Icon: ChefHat      },
   { id: "settings",  label: "Settings",      Icon: Store        },
 ];
+
+function formatTime(val) {
+  if (!val) return "Recently";
+  try {
+    let d;
+    if (Array.isArray(val)) {
+      d = new Date(val[0], val[1] - 1, val[2], val[3] || 0, val[4] || 0, val[5] || 0);
+    } else if (typeof val === "string") {
+      const normalized = val.includes("T") ? val : val.replace(" ", "T");
+      d = new Date(normalized);
+    } else {
+      d = new Date(val);
+    }
+    if (isNaN(d.getTime())) return "Recently";
+    return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "Recently";
+  }
+}
+
+function formatDate(val) {
+  if (!val) return "";
+  try {
+    let d;
+    if (Array.isArray(val)) {
+      d = new Date(val[0], val[1] - 1, val[2], val[3] || 0, val[4] || 0, val[5] || 0);
+    } else if (typeof val === "string") {
+      const normalized = val.includes("T") ? val : val.replace(" ", "T");
+      d = new Date(normalized);
+    } else {
+      d = new Date(val);
+    }
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
+}
 
 export default function OwnerDashboard() {
   const { user } = useAuthStore();
@@ -443,7 +481,7 @@ function OrdersTab({ restaurant, activeOrders, orders, loading, onRefresh }) {
                           )}
                         </div>
                         <div style={{ fontSize: "0.8rem", color: INK_MUTED }}>
-                          {new Date(order.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          {formatTime(order.createdAt)}
                           {order.estimatedDeliveryMins && ` · Est. ${order.estimatedDeliveryMins} mins`}
                         </div>
                       </div>
@@ -455,14 +493,20 @@ function OrdersTab({ restaurant, activeOrders, orders, loading, onRefresh }) {
 
                     {/* Items */}
                     <div style={{ background: FIELD, borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
-                      {(order.items || []).map((item, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between",
-                          fontSize: "0.85rem", color: INK, padding: "4px 0",
-                          borderBottom: i < order.items.length - 1 ? `1px solid ${INK_HAIR}` : "none" }}>
-                          <span>{item.quantity}× {item.itemName || item.name}</span>
-                          <span style={{ color: INK_SOFT }}>₹{parseFloat(item.price || 0) * item.quantity}</span>
-                        </div>
-                      ))}
+                      {(order.items || []).map((item, i) => {
+                        const name = item.menuItemName || item.itemName || item.name || "Item";
+                        const price = item.totalPrice != null
+                          ? parseFloat(item.totalPrice)
+                          : (parseFloat(item.unitPrice || item.price || 0) * (item.quantity || 1));
+                        return (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between",
+                            fontSize: "0.85rem", color: INK, padding: "4px 0",
+                            borderBottom: i < order.items.length - 1 ? `1px solid ${INK_HAIR}` : "none" }}>
+                            <span>{item.quantity}× {name}</span>
+                            <span style={{ color: INK_SOFT }}>₹{isNaN(price) ? 0 : price.toFixed(0)}</span>
+                          </div>
+                        );
+                      })}
                       <div style={{ display: "flex", justifyContent: "space-between",
                         fontSize: "0.9rem", fontWeight: 700, color: INK, marginTop: 10,
                         paddingTop: 10, borderTop: `1.5px solid ${INK_HAIR}` }}>
@@ -543,7 +587,7 @@ function OrdersTab({ restaurant, activeOrders, orders, loading, onRefresh }) {
                         #{order.orderId?.slice(-6).toUpperCase()}
                       </div>
                       <div style={{ fontSize: "0.75rem", color: INK_MUTED, marginTop: 2 }}>
-                        {order.items?.length || 0} items · {new Date(order.createdAt).toLocaleDateString("en-IN")}
+                        {order.items?.length || 0} items · {formatDate(order.createdAt)}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -1075,7 +1119,7 @@ function NoRestaurantView() {
           No restaurant yet
         </h2>
         <p style={{ color: INK_SOFT, marginBottom: 24, lineHeight: 1.6 }}>
-          Register your restaurant on FoodRush and start receiving orders!
+          Register your restaurant on MealMate and start receiving orders!
         </p>
         <button onClick={() => setShow(true)} style={{
           padding: "12px 28px", borderRadius: 12, border: "none",

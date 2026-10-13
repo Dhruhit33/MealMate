@@ -80,8 +80,14 @@ public class RestaurantController {
 
     @GetMapping("/search")
     public ResponseEntity<List<RestaurantResponse>> search(
-            @RequestParam String keyword) {
-        return ResponseEntity.ok(restaurantService.search(keyword));
+            @RequestParam(required = false, name = "keyword") String keyword,
+            @RequestParam(required = false, name = "query") String query,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(defaultValue = "25") double radius) {
+
+        String searchKey = (keyword != null && !keyword.isBlank()) ? keyword : (query != null ? query : "");
+        return ResponseEntity.ok(restaurantService.search(searchKey, lat, lng, radius));
     }
 
     // ─── Nearby Restaurants (public) ───────────────────────────────────
@@ -99,8 +105,12 @@ public class RestaurantController {
     // ─── Top Rated (public) ────────────────────────────────────────────
 
     @GetMapping("/top-rated")
-    public ResponseEntity<List<RestaurantResponse>> topRated() {
-        return ResponseEntity.ok(restaurantService.getTopRated());
+    public ResponseEntity<List<RestaurantResponse>> topRated(
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(defaultValue = "25") double radius) {
+
+        return ResponseEntity.ok(restaurantService.getTopRated(lat, lng, radius));
     }
 
     // ─── Accept Order (Kafka produce) ──────────────────────────────────

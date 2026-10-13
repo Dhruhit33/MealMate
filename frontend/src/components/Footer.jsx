@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ShoppingBag, MapPin, Wallet, Heart } from "lucide-react";
+import MealMateLogo from "./MealMateLogo";
 
 const INK = "#2B1D12";
 const INK_SOFT = "rgba(43,29,18,0.62)";
@@ -24,21 +25,7 @@ export default function Footer() {
       }}>
         {/* Brand */}
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 10,
-              background: `linear-gradient(135deg, ${TERRACOTTA_SOFT}, ${TERRACOTTA} 60%, ${TERRACOTTA_DEEP})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontFamily: "var(--font-display)", fontSize: "1.2rem", fontWeight: 700,
-              color: "#FFF5E6", fontStyle: "italic",
-            }}>f</div>
-            <span style={{
-              fontFamily: "var(--font-display)", fontSize: "1.3rem",
-              color: "#FFF5E6", letterSpacing: "-0.01em",
-            }}>
-              foodrush<span style={{ color: TERRACOTTA }}>.</span>
-            </span>
-          </div>
+          <MealMateLogo theme="dark" size={34} style={{ marginBottom: 16 }} />
           <p style={{
             fontSize: "0.85rem", lineHeight: 1.6,
             color: "rgba(255,255,255,0.4)", maxWidth: 280,
@@ -107,7 +94,7 @@ export default function Footer() {
             color: "rgba(255,255,255,0.3)", marginBottom: 16,
           }}>Get in touch</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: "0.85rem" }}>
-            <span>📧 support@foodrush.app</span>
+            <span>📧 support@mealmate.app</span>
             <span>📱 +91 1234567890</span>
             <span>📍 Ahmedabad, India</span>
           </div>
@@ -122,7 +109,7 @@ export default function Footer() {
         flexWrap: "wrap", gap: 12,
       }}>
         <p style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.3)" }}>
-          © {new Date().getFullYear()} FoodRush. Built with{" "}
+          © {new Date().getFullYear()} MealMate. Built with{" "}
           <Heart size={11} fill={TERRACOTTA} color={TERRACOTTA} style={{ display: "inline", verticalAlign: "-1px" }} />{" "}
           for food lovers.
         </p>

@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShoppingBag, User, LogOut, MapPin, ChevronDown, Search, X, Star, Clock, Wallet, Menu, Navigation } from "lucide-react";
+import { ShoppingBag, User, LogOut, MapPin, ChevronDown, Search, X, Star, Clock, Wallet, Menu, Navigation, Bike } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import { useCartStore } from "../store/cartStore";
 import { useRestaurantStore } from "../store/restaurantStore";
 import CartPanel from "./CartPanel";
+import MealMateLogo from "./MealMateLogo";
 
 const INK = "#2B1D12";
 const INK_SOFT = "rgba(43,29,18,0.62)";
@@ -74,7 +75,11 @@ export default function Navbar() {
     setSearching(true);
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/v1/restaurants/search?query=${encodeURIComponent(q.trim())}`, {
+        const curLoc = useRestaurantStore.getState().currentLocation;
+        const lat = curLoc?.lat ?? 23.1644;
+        const lng = curLoc?.lng ?? 72.5855;
+        const radius = curLoc?.radius ?? 25;
+        const res = await fetch(`/api/v1/restaurants/search?keyword=${encodeURIComponent(q.trim())}&query=${encodeURIComponent(q.trim())}&lat=${lat}&lng=${lng}&radius=${radius}`, {
           headers: {
             "Authorization": `Bearer ${useAuthStore.getState().token}`,
             "Content-Type": "application/json",
@@ -82,7 +87,8 @@ export default function Navbar() {
         });
         if (res.ok) {
           const data = await res.json();
-          setSearchResults(Array.isArray(data) ? data.slice(0, 6) : []);
+          const list = (Array.isArray(data) ? data : []).filter(r => r.distanceKm == null || r.distanceKm <= radius);
+          setSearchResults(list.slice(0, 6));
         } else {
           setSearchResults([]);
         }
@@ -137,18 +143,7 @@ export default function Navbar() {
           justifyContent: "space-between", gap: 16,
         }}>
           {/* Logo */}
-          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 10,
-              background: `linear-gradient(135deg, ${TERRACOTTA_SOFT}, ${TERRACOTTA} 60%, ${TERRACOTTA_DEEP})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontFamily: "var(--font-display)", fontSize: "1.2rem", fontWeight: 700,
-              color: "#FFF5E6", fontStyle: "italic", boxShadow: `0 4px 12px ${TERRACOTTA}35`,
-            }}>f</div>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: "1.3rem", color: INK, letterSpacing: "-0.01em" }}>
-              foodrush<span style={{ color: TERRACOTTA }}>.</span>
-            </span>
-          </Link>
+          <MealMateLogo to="/" size={34} />
 
           {/* Desktop search bar */}
           <div ref={searchRef} className="hide-mobile" style={{ flex: 1, maxWidth: 480, position: "relative" }}>

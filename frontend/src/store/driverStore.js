@@ -7,6 +7,14 @@ import api from "../api/axios";
 const isOnlineStatus = (profile) =>
   profile?.status === "ONLINE" || profile?.status === "ASSIGNED" || profile?.status === "PICKED_UP" || profile?.status === "DELIVERING";
 
+if (typeof window !== "undefined" && window.localStorage) {
+  try {
+    if (!window.localStorage.getItem("mealmate-driver") && window.localStorage.getItem("foodrush-driver")) {
+      window.localStorage.setItem("mealmate-driver", window.localStorage.getItem("foodrush-driver"));
+    }
+  } catch (e) {}
+}
+
 export const useDriverStore = create(
   persist(
     (set, get) => ({
@@ -28,15 +36,19 @@ export const useDriverStore = create(
         set({ loading: true });
         try {
           const res = await api.get("/driver/profile");
-          const profile = res.data;
-          set({
-            driverProfile: profile,
-            isOnline: isOnlineStatus(profile),
-            loading: false,
-          });
-          return profile;
+          const profile = res.data?.driver || res.data;
+          if (profile && profile.driverId) {
+            set({
+              driverProfile: profile,
+              isOnline: isOnlineStatus(profile),
+              loading: false,
+            });
+            return profile;
+          }
+          set({ driverProfile: null, isOnline: false, loading: false });
+          return null;
         } catch {
-          set({ loading: false });
+          set({ driverProfile: null, isOnline: false, loading: false });
           return null;
         }
       },
@@ -50,8 +62,21 @@ export const useDriverStore = create(
         };
         const res = await api.post("/driver/register", payload);
         const profile = res.data?.driver || res.data;
-        set({ driverProfile: profile, isOnline: isOnlineStatus(profile) });
-        return res.data;
+        set({ driverProfile: profile, isOnline: false });
+        return profile;
+      },
+
+      updateProfile: async (data) => {
+        const payload = {
+          name: data.name,
+          phone: data.phone,
+          vehicleType: data.vehicleType,
+          vehicleNum: data.vehicleNumber || data.vehicleNum,
+        };
+        const res = await api.put("/driver/profile", payload);
+        const profile = res.data?.driver || res.data;
+        set({ driverProfile: profile });
+        return profile;
       },
 
       goOnline: async (latitude, longitude) => {
@@ -122,12 +147,11 @@ export const useDriverStore = create(
         }
       },
 
-      // Fetch active delivery — backend throws 500 if none exists, so handle gracefully
+      // Fetch active delivery for the logged-in driver
       fetchActiveDelivery: async () => {
         try {
           const res = await api.get("/delivery/driver/active");
           const delivery = res.data?.delivery || res.data;
-          // Only set if it's a valid delivery object (has deliveryId)
           if (delivery && delivery.deliveryId) {
             set({ activeDelivery: delivery });
             return delivery;
@@ -135,7 +159,6 @@ export const useDriverStore = create(
           set({ activeDelivery: null });
           return null;
         } catch {
-          // 404/500 means no active delivery — that's OK
           set({ activeDelivery: null });
           return null;
         }
@@ -147,6 +170,14 @@ export const useDriverStore = create(
           const deliveries = res.data?.deliveries || res.data || [];
           set({ deliveryHistory: Array.isArray(deliveries) ? deliveries : [] });
         } catch {}
+      },
+
+      acceptDelivery: async () => {
+        const res = await api.post("/delivery/accept");
+        const delivery = res.data?.delivery || res.data;
+        set({ activeDelivery: delivery, isOnline: true });
+        try { await get().fetchProfile(); } catch {}
+        return res.data;
       },
 
       confirmPickup: async () => {
@@ -173,7 +204,7 @@ export const useDriverStore = create(
       },
     }),
     {
-      name: "foodrush-driver",
+      name: "mealmate-driver",
       partialize: (state) => ({
         driverProfile: state.driverProfile,
         isOnline: state.isOnline,

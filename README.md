@@ -1,9 +1,9 @@
-# 🍔 FoodRush
+# 🍔 MealMate
 
 > **Production-Grade Event-Driven Microservices Platform**
 > Java 21 · Spring Boot 3 · Kafka · Redis · MySQL · React 18 · Prometheus · Grafana
 
-FoodRush is a fully containerized, cloud-ready food delivery platform built with a strict microservices architecture. Every service is independently deployable, observable, and scalable — backed by Kafka event choreography, distributed caching, real-time WebSockets, and a full observability stack.
+MealMate is a fully containerized, cloud-ready food delivery platform built with a strict microservices architecture. Every service is independently deployable, observable, and scalable — backed by Kafka event choreography, distributed caching, real-time WebSockets, and a full observability stack.
 
 ---
 
@@ -22,6 +22,7 @@ FoodRush is a fully containerized, cloud-ready food delivery platform built with
 11. [Security Model](#security-model)
 12. [Quick Start — Docker](#quick-start--docker-recommended)
 13. [Manual Setup — Local Dev](#manual-setup--local-dev)
+14. [AWS Cloud Deployment — Free-Tier Architecture](./infra/README.md)
 
 ---
 
@@ -39,7 +40,7 @@ FoodRush is a fully containerized, cloud-ready food delivery platform built with
 
 ## High-Level Architecture
 
-FoodRush enforces **Database-per-Service** isolation. REST is used only for client-facing reads. All state mutations propagate as Domain Events over Kafka.
+MealMate enforces **Database-per-Service** isolation. REST is used only for client-facing reads. All state mutations propagate as Domain Events over Kafka.
 
 ```mermaid
 graph TD
@@ -242,7 +243,7 @@ sequenceDiagram
 
 ## Observability Stack
 
-FoodRush ships with a **fully provisioned** monitoring stack. No manual setup required — dashboards auto-load on container start.
+MealMate ships with a **fully provisioned** monitoring stack. No manual setup required — dashboards auto-load on container start.
 
 ### What's monitored
 
@@ -401,7 +402,7 @@ All APIs are accessed via `http://localhost:8080/api/v1/...` with `Authorization
 
 ## Quick Start — Docker (Recommended)
 
-> ✅ **This is the easiest way to run FoodRush.** One command starts everything — all 8 Spring Boot services, Kafka, MySQL, Redis, Prometheus, and Grafana. No Java or Node.js installation needed.
+> ✅ **This is the easiest way to run MealMate.** One command starts everything — all 8 Spring Boot services, Kafka, MySQL, Redis, Prometheus, and Grafana. No Java or Node.js installation needed.
 
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
@@ -411,8 +412,8 @@ All APIs are accessed via `http://localhost:8080/api/v1/...` with `Authorization
 ### Step 1 — Clone & Configure
 
 ```bash
-git clone https://github.com/shrey200634/foodRush.git
-cd foodRush
+git clone https://github.com/Dhruhit33/MealMate.git
+cd MealMate
 ```
 
 Copy the example environment file:
@@ -569,7 +570,7 @@ Open http://localhost:5173
 ## Project Structure
 
 ```
-foodRush/
+MealMate/
 ├── Backened/
 │   ├── api-gateway/
 │   ├── config-server/
@@ -587,10 +588,40 @@ foodRush/
 │       ├── dashboards/                           ← Auto-provisioned dashboard
 │       └── datasources/                          ← Prometheus datasource
 ├── prometheus.yml                                ← Scrape config for all services
+├── infra/                                        ← AWS Free-Tier Terraform Architecture
+│   ├── envs/demo/                                ← Demo environment (ASG, RDS, CloudFront, S3)
+│   ├── Makefile                                  ← Automated diagram generator (`make diagram`)
+│   └── README.md                                 ← Cloud Architecture & Diagrams
+├── docs/                                         ← Architecture Diagrams & Plans
+│   ├── architecture.png                          ← Presentation Architecture Diagram
+│   ├── architecture.svg                          ← Vector Architecture Diagram
+│   ├── inframap.svg                              ← Connection Graph
+│   └── terraform-graph.svg                       ← Technical DAG Graph
 ├── docker-compose.yml
 ├── phase2-seed.sql
 └── .env.example
 ```
+
+---
+
+## AWS Cloud Deployment & Architecture
+
+The complete platform can be provisioned on AWS under the Free Tier using Terraform:
+
+```bash
+cd infra/envs/demo
+terraform init -backend=false
+terraform validate
+```
+
+To automatically generate all technical, connection, and presentation architecture diagrams:
+
+```bash
+cd infra
+make diagram
+```
+
+For full architecture diagrams, sequence flows, port allocations, and step-by-step instructions, see the **[MealMate AWS Free-Tier Infrastructure Guide](./infra/README.md)**.
 
 ---
 

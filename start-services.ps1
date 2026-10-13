@@ -1,4 +1,4 @@
-# start-services.ps1 - FoodRush Microservices Launcher
+# start-services.ps1 - MealMate Microservices Launcher
 Param(
     [string]$Service = "core" # "core" launches Config, Eureka, Gateway, User; "all" launches everything
 )
@@ -13,7 +13,7 @@ function Start-ServiceWindow($name, $path, $port) {
 }
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "       FoodRush Services Launcher        " -ForegroundColor Cyan
+Write-Host "       MealMate Services Launcher        " -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 # Helper function to check if port is open before launching

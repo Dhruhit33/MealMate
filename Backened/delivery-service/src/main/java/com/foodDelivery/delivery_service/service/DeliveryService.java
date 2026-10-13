@@ -25,10 +25,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DeliveryService {
     private final DeliveryRepo deliveryRepo;
-    private   final DriverRepo driverRepo;
-    private  final DriverMatchingService driverMatchingService;
+    private final DriverRepo driverRepo;
+    private final DriverMatchingService driverMatchingService;
     private final ETAService etaService;
     private final DeliveryEventProducer eventProducer;
+    private final org.springframework.data.redis.core.RedisTemplate<String, String> redisTemplate;
     /// ////------------Driver ManageMent --------------------------------------------//
 
     //---------------- Register for the driver profile ------------//
@@ -63,27 +64,26 @@ public class DeliveryService {
     //required current location to add to redis Geo
 
     @Transactional
-    public  DriverResponse goOnline(String userId , double lat , double lng){
-        Driver driver=driverRepo.findByUserId(userId)
-                .orElseThrow(()-> new IllegalStateException("Driver position not found. Register first"));
+    public DriverResponse goOnline(String userId, double lat, double lng) {
+        Driver driver = driverRepo.findByUserId(userId)
+                .orElseThrow(() -> new IllegalStateException("Rider profile not found. Please complete rider registration first."));
 
         driver.setStatus(DriverStatus.ONLINE);
         driver.setCurrentLatitude(BigDecimal.valueOf(lat));
         driver.setCurrentLongitude(BigDecimal.valueOf(lng));
         driverRepo.save(driver);
 
-        //Add to Redis Geo for location -based matching
-        driverMatchingService.updateDriverLocation(driver.getDriverId(), lat,lng);
+        // Add to Redis Geo for location-based matching
+        driverMatchingService.updateDriverLocation(driver.getDriverId(), lat, lng);
         log.info("Driver online: driverId={}, location=({}, {})", driver.getDriverId(), lat, lng);
         return toDriverResponse(driver);
     }
 
-    //Driver goes offline no longer available for deliveries
-
+    // Driver goes offline no longer available for deliveries
     @Transactional
-    public  DriverResponse goOffline(String userId ){
+    public DriverResponse goOffline(String userId) {
         Driver driver = driverRepo.findByUserId(userId)
-                .orElseThrow(()-> new IllegalStateException("Driver profile not found "));
+                .orElseThrow(() -> new IllegalStateException("Driver profile not found"));
         boolean hasActiveDelivery = deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isPresent();
         if (hasActiveDelivery) {
             throw new IllegalStateException("Cannot go offline while on an active delivery");
@@ -91,18 +91,20 @@ public class DeliveryService {
         driver.setStatus(DriverStatus.OFFLINE);
         driverRepo.save(driver);
 
-        //Remove from Redis Geo
+        // Remove from Redis Geo
         driverMatchingService.removeDriverLocation(driver.getDriverId());
         log.info("Driver offline: driverId={}", driver.getDriverId());
-        return  toDriverResponse(driver);
-
+        return toDriverResponse(driver);
     }
 
-    //Get driver profile by userId
+    // Get driver profile by userId
     @Transactional
-    public DriverResponse getDriverProfile(String userId ){
-        Driver driver = driverRepo.findByUserId(userId)
-                .orElseThrow(()->new IllegalStateException("Driver profile not found"));
+    public DriverResponse getDriverProfile(String userId) {
+        Optional<Driver> driverOpt = driverRepo.findByUserId(userId);
+        if (driverOpt.isEmpty()) {
+            return null;
+        }
+        Driver driver = driverOpt.get();
         // Auto-heal driver status if DB says ASSIGNED or PICKED_UP but no active delivery exists
         if ((driver.getStatus() == DriverStatus.ASSIGNED || driver.getStatus() == DriverStatus.PICKED_UP)
                 && deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isEmpty()) {
@@ -116,6 +118,28 @@ public class DeliveryService {
                 );
             }
         }
+        return toDriverResponse(driver);
+    }
+
+    // Update driver profile details (Name, Phone, Vehicle Number, Vehicle Type)
+    @Transactional
+    public DriverResponse updateDriverProfile(String userId, DriverRegistrationRequest request) {
+        Driver driver = driverRepo.findByUserId(userId)
+                .orElseThrow(() -> new IllegalStateException("Rider profile not found"));
+        if (request.getName() != null && !request.getName().isBlank()) {
+            driver.setName(request.getName().trim());
+        }
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            driver.setPhone(request.getPhone().trim());
+        }
+        if (request.getVehicleType() != null && !request.getVehicleType().isBlank()) {
+            driver.setVehicleType(request.getVehicleType().trim());
+        }
+        if (request.getVehicleNum() != null && !request.getVehicleNum().isBlank()) {
+            driver.setVehicleNumber(request.getVehicleNum().trim().toUpperCase());
+        }
+        driver = driverRepo.save(driver);
+        log.info("Rider profile updated: driverId={}, name={}, vehicle={}", driver.getDriverId(), driver.getName(), driver.getVehicleNumber());
         return toDriverResponse(driver);
     }
 
@@ -161,16 +185,25 @@ public class DeliveryService {
         if (dropoffLat == null || dropoffLng == null || dropoffLat.doubleValue() == 0) {
             if (event.getDeliveryAddress() != null) {
                 String addrLower = event.getDeliveryAddress().toLowerCase();
-                if (addrLower.contains("nirma") || addrLower.contains("tragad") || addrLower.contains("sg highway")) {
+                if (addrLower.contains("annpurna") || addrLower.contains("annapurna") || addrLower.contains("adalaj")) {
+                    dropoffLat = BigDecimal.valueOf(23.16469190);
+                    dropoffLng = BigDecimal.valueOf(72.58210460);
+                } else if (addrLower.contains("surat")) {
+                    dropoffLat = BigDecimal.valueOf(21.11697090);
+                    dropoffLng = BigDecimal.valueOf(72.78540090);
+                } else if (addrLower.contains("rajkot")) {
+                    dropoffLat = BigDecimal.valueOf(22.30940400);
+                    dropoffLng = BigDecimal.valueOf(70.78124270);
+                } else if (addrLower.contains("nirma") || addrLower.contains("tragad") || addrLower.contains("sg highway")) {
                     dropoffLat = BigDecimal.valueOf(23.12639030);
                     dropoffLng = BigDecimal.valueOf(72.54000890);
                 } else {
-                    dropoffLat = BigDecimal.valueOf(23.1288);
-                    dropoffLng = BigDecimal.valueOf(72.5448);
+                    dropoffLat = BigDecimal.valueOf(23.16469190);
+                    dropoffLng = BigDecimal.valueOf(72.58210460);
                 }
             } else {
-                dropoffLat = BigDecimal.valueOf(23.1288);
-                dropoffLng = BigDecimal.valueOf(72.5448);
+                dropoffLat = BigDecimal.valueOf(23.16469190);
+                dropoffLng = BigDecimal.valueOf(72.58210460);
             }
         }
 
@@ -197,79 +230,152 @@ public class DeliveryService {
         log.info("Delivery created: deliveryId={}, orderId={}, rest=[{}, {}], pickup=[{}, {}], dropoff=[{}, {}]",
                 delivery.getDeliveryId(), event.getOrderId(), restAddress, restPhone, pickupLat, pickupLng, dropoffLat, dropoffLng);
 
-        attemptDriverAssignment(delivery);
+        dispatchNextDriverInQueue(delivery);
         return delivery;
 
     }
 
-    //Assigned to a driver to a pending delivery
-    //use Redis Geo to find nearest driver
+    // Dispatch next candidate driver in the queue for a delivery request
     @Transactional
-    public  void  attemptDriverAssignment(Delivery delivery){
-        if ( delivery.getStatus()!= DeliveryStatus.PENDING){
-            log.debug("Delivery {} is not PENDING, skipping assignment", delivery.getDeliveryId());
-            return;
-        }
-        //use res location for matching (if available )
+    public void dispatchNextDriverInQueue(Delivery delivery) {
         double restaurantLat = delivery.getPickupLatitude() != null
                 ? delivery.getPickupLatitude().doubleValue() : 23.1644;
         double restaurantLng = delivery.getPickupLongitude() != null
                 ? delivery.getPickupLongitude().doubleValue() : 72.5855;
-        Optional<Driver> nearestDriver  = driverMatchingService.findNearestDriver(restaurantLat,restaurantLng);
-        if (nearestDriver.isEmpty()){
-            log.warn("No available driver for delivery {}, will retry", delivery.getDeliveryId());
+
+        List<Driver> queue = driverMatchingService.findDriversInQueue(restaurantLat, restaurantLng, 25.0);
+        if (queue.isEmpty()) {
+            log.warn("No online drivers in 25km radius for delivery {}", delivery.getDeliveryId());
+            delivery.setDriverId(null);
+            delivery.setStatus(DeliveryStatus.PENDING);
+            deliveryRepo.save(delivery);
             return;
         }
-        Driver driver = nearestDriver.get();
-        // Only assign if driver has no active delivery and is not OFFLINE
-        if (driver.getStatus() != DriverStatus.OFFLINE && 
-            deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isEmpty()) {
-            assignDriver(delivery, driver, restaurantLat, restaurantLng);
-        } else {
-            log.warn("Driver {} cannot be assigned (status={}, hasActiveDelivery={})", 
-                driver.getDriverId(), driver.getStatus(), 
-                deliveryRepo.findActiveDeliveryByDriverId(driver.getDriverId()).isPresent());
+
+        String redisKey = "delivery:declined:" + delivery.getDeliveryId();
+        java.util.Set<String> declinedDriverIds = redisTemplate.opsForSet().members(redisKey);
+        if (declinedDriverIds == null) {
+            declinedDriverIds = java.util.Collections.emptySet();
         }
-    }
 
-    // Assign a specific driver to a delivery
-    @Transactional
-    public  void  assignDriver(Delivery delivery , Driver driver , double resLat , double resLng ){
-        driver.setStatus(DriverStatus.ASSIGNED);
-        driverRepo.save(driver);
+        final java.util.Set<String> finalDeclined = declinedDriverIds;
+        List<Driver> available = queue.stream()
+                .filter(d -> !finalDeclined.contains(d.getDriverId()))
+                .filter(d -> {
+                    Optional<Delivery> act = deliveryRepo.findActiveDeliveryByDriverId(d.getDriverId());
+                    return act.isEmpty() || act.get().getDeliveryId().equals(delivery.getDeliveryId());
+                })
+                .toList();
 
-        double driverLat = driver.getCurrentLatitude()!=null ? driver.getCurrentLatitude().doubleValue():resLat;
-        double driverLng =driver.getCurrentLongitude()!=null?driver.getCurrentLongitude().doubleValue():resLng;
-        double customerLat = delivery.getDropoffLatitude() != null ? delivery.getDropoffLatitude().doubleValue() : resLat;
-        double customerLng = delivery.getDropoffLongitude() != null ? delivery.getDropoffLongitude().doubleValue() : resLng;
+        Driver selectedDriver;
+        if (available.isEmpty()) {
+            // All drivers in the queue have declined! As requested:
+            // "if all rider finish then go to call first to end like this type"
+            log.info("All {} online drivers declined delivery {}. Cycling back to first driver in queue.",
+                    queue.size(), delivery.getDeliveryId());
+            redisTemplate.delete(redisKey);
+            selectedDriver = queue.get(0);
+        } else {
+            selectedDriver = available.get(0);
+        }
 
+        // Calculate ETA and route info
+        double driverLat = selectedDriver.getCurrentLatitude() != null ? selectedDriver.getCurrentLatitude().doubleValue() : restaurantLat;
+        double driverLng = selectedDriver.getCurrentLongitude() != null ? selectedDriver.getCurrentLongitude().doubleValue() : restaurantLng;
+        double customerLat = delivery.getDropoffLatitude() != null ? delivery.getDropoffLatitude().doubleValue() : restaurantLat;
+        double customerLng = delivery.getDropoffLongitude() != null ? delivery.getDropoffLongitude().doubleValue() : restaurantLng;
 
-        int estimateMins = etaService.calculateETA(driverLat,driverLng,resLat,resLng,customerLat,customerLng);
-        double distance = etaService.calculateDistanceKm(resLat,resLng,customerLat,customerLng);
-        //update Delivery
-        delivery.setDriverId(driver.getDriverId());
-        delivery.setStatus(DeliveryStatus.DRIVER_ASSIGNED);
+        int estimateMins = etaService.calculateETA(driverLat, driverLng, restaurantLat, restaurantLng, customerLat, customerLng);
+        double distance = etaService.calculateDistanceKm(restaurantLat, restaurantLng, customerLat, customerLng);
+
+        // Offer to candidate driver: status stays PENDING until driver accepts!
+        delivery.setDriverId(selectedDriver.getDriverId());
+        delivery.setStatus(DeliveryStatus.PENDING);
         delivery.setEstimatedDeliveryMins(estimateMins);
         delivery.setDistanceKm(etaService.totalDisBigDecimal(distance));
         delivery.setAssignedAt(LocalDateTime.now());
         deliveryRepo.save(delivery);
 
-        log.info("Driver assigned: driverId={}, orderId={}, ETA={}mins",
-                driver.getDriverId(), delivery.getOrderId(), estimateMins);
+        log.info("Delivery {} dispatched/offered to driver {} ({}) in queue. Awaiting driver acceptance.",
+                delivery.getDeliveryId(), selectedDriver.getDriverId(), selectedDriver.getName());
+    }
 
-        //produce to kafka event
+    @Transactional
+    public void attemptDriverAssignment(Delivery delivery) {
+        if (delivery.getStatus() != DeliveryStatus.PENDING) {
+            log.debug("Delivery {} is not PENDING, skipping assignment", delivery.getDeliveryId());
+            return;
+        }
+        dispatchNextDriverInQueue(delivery);
+    }
 
+    // Scheduled Uber-style timeout: If candidate driver does not accept within 25 seconds,
+    // automatically decline and offer to the next driver in the queue!
+    @org.springframework.scheduling.annotation.Scheduled(fixedRate = 4000)
+    @Transactional
+    public void checkAndTimeoutPendingOffers() {
+        List<Delivery> pendingList = deliveryRepo.findPendingDeliveries();
+        if (pendingList == null || pendingList.isEmpty()) return;
+
+        LocalDateTime cutoff = LocalDateTime.now().minusSeconds(25);
+        for (Delivery delivery : pendingList) {
+            if (delivery.getDriverId() != null && delivery.getAssignedAt() != null && delivery.getAssignedAt().isBefore(cutoff)) {
+                String timedOutDriverId = delivery.getDriverId();
+                log.info("Uber-dispatch auto-timeout (25s delay): Driver {} did not respond for delivery {}. Passing offer to next driver in queue.",
+                        timedOutDriverId, delivery.getDeliveryId());
+
+                // Release driver back to ONLINE
+                driverRepo.findById(timedOutDriverId).ifPresent(d -> {
+                    d.setStatus(DriverStatus.ONLINE);
+                    driverRepo.save(d);
+                });
+
+                // Add driver to declined set in Redis for this delivery
+                String redisKey = "delivery:declined:" + delivery.getDeliveryId();
+                redisTemplate.opsForSet().add(redisKey, timedOutDriverId);
+
+                // Dispatch to next driver in queue!
+                dispatchNextDriverInQueue(delivery);
+            }
+        }
+    }
+
+    // Driver ACCEPTS the delivery request
+    @Transactional
+    public DeliveryResponse acceptDelivery(String driverId) {
+        Delivery delivery = deliveryRepo.findActiveDeliveryByDriverId(driverId)
+                .orElseThrow(() -> new IllegalStateException("No pending delivery request found for driver " + driverId));
+
+        if (delivery.getStatus() != DeliveryStatus.PENDING && delivery.getStatus() != DeliveryStatus.DRIVER_ASSIGNED) {
+            throw new IllegalStateException("Cannot accept delivery with status: " + delivery.getStatus());
+        }
+
+        Driver driver = driverRepo.findById(driverId)
+                .orElseThrow(() -> new IllegalStateException("Driver not found"));
+        driver.setStatus(DriverStatus.ASSIGNED);
+        driverRepo.save(driver);
+
+        delivery.setStatus(DeliveryStatus.DRIVER_ASSIGNED);
+        delivery.setAssignedAt(LocalDateTime.now());
+        Delivery saved = deliveryRepo.save(delivery);
+
+        log.info("Driver {} ({}) ACCEPTED delivery {}. Officially DRIVER_ASSIGNED now.",
+                driverId, driver.getName(), saved.getDeliveryId());
+
+        // Publish Kafka event ONLY WHEN DRIVER ACCEPTS
         eventProducer.sendDriverAssigned(DriverAssignedEvent.builder()
-                .deliveryId(delivery.getDeliveryId())
-                .orderId(delivery.getOrderId())
+                .deliveryId(saved.getDeliveryId())
+                .orderId(saved.getOrderId())
                 .driverId(driver.getDriverId())
                 .driverName(driver.getName())
                 .driverPhone(driver.getPhone())
                 .vehicleType(driver.getVehicleType())
                 .vehicleNumber(driver.getVehicleNumber())
-                .estimatedMins(estimateMins)
-                .assignedAt(delivery.getAssignedAt())
+                .estimatedMins(saved.getEstimatedDeliveryMins())
+                .assignedAt(saved.getAssignedAt())
                 .build());
+
+        return toDeliveryResponse(saved);
     }
 
     // Driver confirms pickup from restaurant
@@ -289,7 +395,7 @@ public class DeliveryService {
         driver.setStatus(DriverStatus.PICKED_UP);
         driverRepo.save(driver);
         log.info("Pickup confirmed: orderId={}, driverId={}", delivery.getOrderId(), driverId);
-        // Publish Kafka even
+        // Publish Kafka event
         eventProducer.sendDeliveryPickedUp(DeliveryPickedUpEvent.builder()
                 .deliveryId(delivery.getDeliveryId())
                 .orderId(delivery.getOrderId())
@@ -301,15 +407,11 @@ public class DeliveryService {
         return toDeliveryResponse(delivery);
     }
 
-    // Driver declines / rejects the assigned delivery request
+    // Driver declines / rejects the delivery request
     @Transactional
     public DeliveryResponse declineDelivery(String driverId) {
         Delivery delivery = deliveryRepo.findActiveDeliveryByDriverId(driverId)
-                .orElseThrow(() -> new IllegalStateException("No active assigned delivery found for this driver"));
-
-        if (delivery.getStatus() != DeliveryStatus.DRIVER_ASSIGNED) {
-            throw new IllegalStateException("Cannot decline delivery with status: " + delivery.getStatus());
-        }
+                .orElseThrow(() -> new IllegalStateException("No active delivery request found for driver " + driverId));
 
         // Release driver back to ONLINE
         Driver driver = driverRepo.findById(driverId)
@@ -325,15 +427,16 @@ public class DeliveryService {
             );
         }
 
-        // Reset delivery back to PENDING so another driver can be assigned
-        delivery.setDriverId(null);
-        delivery.setStatus(DeliveryStatus.PENDING);
-        delivery.setAssignedAt(null);
-        Delivery savedDelivery = deliveryRepo.save(delivery);
+        // Add this driver to the declined set in Redis for this delivery
+        String redisKey = "delivery:declined:" + delivery.getDeliveryId();
+        redisTemplate.opsForSet().add(redisKey, driverId);
 
-        log.info("Driver {} declined delivery {}. Reset to PENDING for rematching.", driverId, delivery.getDeliveryId());
+        log.info("Driver {} DECLINED delivery {}. Dispatching to next driver in queue.", driverId, delivery.getDeliveryId());
 
-        return toDeliveryResponse(savedDelivery);
+        // Dispatch next driver in queue!
+        dispatchNextDriverInQueue(delivery);
+
+        return toDeliveryResponse(delivery);
     }
 
     //Driver complete the delivery
@@ -534,7 +637,7 @@ public class DeliveryService {
                 .userId(delivery.getUserId())
                 .restaurantId(delivery.getRestaurantId())
                 .restaurantName(delivery.getRestaurantName())
-                .driverId(delivery.getDriverId())
+                .driverId(delivery.getStatus() != DeliveryStatus.PENDING ? delivery.getDriverId() : null)
                 .status(delivery.getStatus().name())
                 .pickupAddress(pickupAddr)
                 .restaurantAddress(pickupAddr)
@@ -543,8 +646,8 @@ public class DeliveryService {
                 .deliveryAddress(delivery.getDropoffAddress())  // alias for frontend
                 .pickupLatitude(delivery.getPickupLatitude() != null ? delivery.getPickupLatitude() : BigDecimal.valueOf(23.1644))
                 .pickupLongitude(delivery.getPickupLongitude() != null ? delivery.getPickupLongitude() : BigDecimal.valueOf(72.5855))
-                .dropoffLatitude(delivery.getDropoffLatitude() != null ? delivery.getDropoffLatitude() : BigDecimal.valueOf(23.1264))
-                .dropoffLongitude(delivery.getDropoffLongitude() != null ? delivery.getDropoffLongitude() : BigDecimal.valueOf(72.5400))
+                .dropoffLatitude(delivery.getDropoffLatitude() != null && delivery.getDropoffLatitude().doubleValue() != 0 ? delivery.getDropoffLatitude() : BigDecimal.valueOf(23.16469190))
+                .dropoffLongitude(delivery.getDropoffLongitude() != null && delivery.getDropoffLongitude().doubleValue() != 0 ? delivery.getDropoffLongitude() : BigDecimal.valueOf(72.58210460))
                 .estimatedDeliveryMins(delivery.getEstimatedDeliveryMins())
                 .actualDeliveryMins(delivery.getActualDeliveryMins())
                 .distanceKm(delivery.getDistanceKm())
@@ -558,8 +661,8 @@ public class DeliveryService {
                 .userEmail(delivery.getUserEmail())
                 .specialInstructions(delivery.getSpecialInstructions());
 
-        // Add driver info if assigned
-        if (delivery.getDriverId() != null) {
+        // Add driver info only if driver has officially accepted (not PENDING)
+        if (delivery.getDriverId() != null && delivery.getStatus() != DeliveryStatus.PENDING) {
             driverRepo.findById(delivery.getDriverId()).ifPresent(driver -> {
                 builder.driverName(driver.getName());
                 builder.driverPhone(driver.getPhone());
@@ -573,15 +676,22 @@ public class DeliveryService {
 
     public java.util.Map fetchRestaurantDetails(String restaurantId) {
         if (restaurantId == null || restaurantId.isBlank()) return null;
-        try {
-            org.springframework.web.client.RestClient rc = org.springframework.web.client.RestClient.create();
-            return rc.get()
-                    .uri("http://localhost:8082/restaurants/{id}", restaurantId)
-                    .retrieve()
-                    .body(java.util.Map.class);
-        } catch (Exception e) {
-            log.warn("Could not fetch restaurant details for {}: {}", restaurantId, e.getMessage());
+        String[] endpoints = new String[]{
+                "http://restaurant-service:8082/restaurants/" + restaurantId,
+                "http://localhost:8082/restaurants/" + restaurantId
+        };
+        for (String uri : endpoints) {
+            try {
+                org.springframework.web.client.RestClient rc = org.springframework.web.client.RestClient.create();
+                return rc.get()
+                        .uri(uri)
+                        .retrieve()
+                        .body(java.util.Map.class);
+            } catch (Exception e) {
+                // try next endpoint
+            }
         }
+        log.warn("Could not fetch restaurant details for {}", restaurantId);
         return null;
     }
 

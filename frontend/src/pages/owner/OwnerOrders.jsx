@@ -40,6 +40,44 @@ const NEXT = {
   PREPARING: { label: "Mark Ready",    status: "READY",     color: SUCCESS  },
 };
 
+function formatTime(val) {
+  if (!val) return "Recently";
+  try {
+    let d;
+    if (Array.isArray(val)) {
+      d = new Date(val[0], val[1] - 1, val[2], val[3] || 0, val[4] || 0, val[5] || 0);
+    } else if (typeof val === "string") {
+      const normalized = val.includes("T") ? val : val.replace(" ", "T");
+      d = new Date(normalized);
+    } else {
+      d = new Date(val);
+    }
+    if (isNaN(d.getTime())) return "Recently";
+    return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "Recently";
+  }
+}
+
+function formatDate(val) {
+  if (!val) return "";
+  try {
+    let d;
+    if (Array.isArray(val)) {
+      d = new Date(val[0], val[1] - 1, val[2], val[3] || 0, val[4] || 0, val[5] || 0);
+    } else if (typeof val === "string") {
+      const normalized = val.includes("T") ? val : val.replace(" ", "T");
+      d = new Date(normalized);
+    } else {
+      d = new Date(val);
+    }
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
+}
+
 export default function OwnerOrders() {
   const {
     currentRestaurant, activeOrders, orders,
@@ -208,7 +246,7 @@ export default function OwnerOrders() {
                           )}
                         </div>
                         <div style={{ fontSize: "0.78rem", color: INK_MUTED }}>
-                          {order.createdAt && new Date(order.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          {formatTime(order.createdAt)}
                           {order.estimatedDeliveryMins && ` · Est. ${order.estimatedDeliveryMins} mins`}
                         </div>
                       </div>
@@ -218,18 +256,24 @@ export default function OwnerOrders() {
 
                     {/* Items */}
                     <div style={{ background: CARD2, borderRadius: 14, padding: "14px 18px", marginBottom: 18 }}>
-                      {(order.items || []).map((item, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between",
-                          alignItems: "center", padding: "5px 0",
-                          borderBottom: i < order.items.length - 1 ? `1px solid ${INK_HAIR}` : "none",
-                          fontSize: "0.88rem" }}>
-                          <span style={{ color: INK }}>
-                            <span style={{ color: TC, fontWeight: 700, marginRight: 6 }}>{item.quantity}×</span>
-                            {item.itemName || item.name}
-                          </span>
-                          <span style={{ color: INK_MUTED }}>₹{parseFloat(item.price || 0) * item.quantity}</span>
-                        </div>
-                      ))}
+                      {(order.items || []).map((item, i) => {
+                        const name = item.menuItemName || item.itemName || item.name || "Item";
+                        const price = item.totalPrice != null
+                          ? parseFloat(item.totalPrice)
+                          : (parseFloat(item.unitPrice || item.price || 0) * (item.quantity || 1));
+                        return (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between",
+                            alignItems: "center", padding: "5px 0",
+                            borderBottom: i < order.items.length - 1 ? `1px solid ${INK_HAIR}` : "none",
+                            fontSize: "0.88rem" }}>
+                            <span style={{ color: INK }}>
+                              <span style={{ color: TC, fontWeight: 700, marginRight: 6 }}>{item.quantity}×</span>
+                              {name}
+                            </span>
+                            <span style={{ color: INK_MUTED }}>₹{isNaN(price) ? 0 : price.toFixed(0)}</span>
+                          </div>
+                        );
+                      })}
                       <div style={{ display: "flex", justifyContent: "space-between",
                         fontSize: "0.95rem", fontWeight: 700, color: INK, marginTop: 12,
                         paddingTop: 12, borderTop: `1px solid ${INK_HAIR}` }}>
@@ -305,8 +349,7 @@ export default function OwnerOrders() {
                         #{order.orderId?.slice(-6)?.toUpperCase()}
                       </div>
                       <div style={{ fontSize: "0.75rem", color: INK_MUTED, marginTop: 3 }}>
-                        {order.items?.length || 0} items ·{" "}
-                        {order.createdAt && new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        {order.items?.length || 0} items · {formatDate(order.createdAt)}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

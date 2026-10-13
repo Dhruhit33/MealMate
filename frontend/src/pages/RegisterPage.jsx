@@ -4,6 +4,7 @@ import { Loader2, ArrowLeft, Check } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store/authStore";
 import { normaliseRole } from "../api/roles";
+import MealMateLogo from "../components/MealMateLogo";
 
 const BG = "#FAF3E7";
 const BG_DEEP = "#F0E4CF";
@@ -41,7 +42,7 @@ export default function RegisterPage() {
     let effectiveUser = user;
     if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
       try {
-        const raw = window.localStorage.getItem("foodrush-auth");
+        const raw = window.localStorage.getItem("mealmate-auth") || window.localStorage.getItem("foodrush-auth");
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed?.state?.token) {
@@ -67,9 +68,9 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await register(form);
-      sessionStorage.setItem("foodrush_pending_email", form.email);
+      sessionStorage.setItem("mealmate_pending_email", form.email);
       if (res?.otp) {
-        sessionStorage.setItem("foodrush_pending_otp", res.otp);
+        sessionStorage.setItem("mealmate_pending_otp", res.otp);
       }
       toast.success(res?.message || "Account created! Verify your code.");
       navigate("/verify-otp", { state: { email: form.email, otp: res?.otp } });
@@ -136,19 +137,7 @@ export default function RegisterPage() {
           <ArrowLeft size={14} /> Back to login
         </Link>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 11,
-            background: `linear-gradient(135deg, ${TERRACOTTA_SOFT}, ${TERRACOTTA} 60%, ${TERRACOTTA_DEEP})`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "var(--font-display)", fontSize: "1.35rem", fontWeight: 700,
-            color: "#FFF5E6", fontStyle: "italic",
-            boxShadow: `0 6px 20px ${TERRACOTTA}30`,
-          }}>f</div>
-          <span style={{ fontFamily: "var(--font-display)", fontSize: "1.45rem", color: INK }}>
-            foodrush<span style={{ color: TERRACOTTA }}>.</span>
-          </span>
-        </div>
+        <MealMateLogo to="/" size={38} />
       </div>
 
       <div style={{

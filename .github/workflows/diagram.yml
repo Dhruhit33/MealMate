@@ -1,0 +1,55 @@
+name: Generate Infrastructure Diagrams
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+
+jobs:
+  diagram:
+    name: Generate and Artifact Diagrams
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Dependencies (Graphviz & Inframap)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y graphviz make curl
+          curl -sLo /tmp/inframap.tar.gz https://github.com/cycloidio/inframap/releases/download/v0.8.0/inframap-linux-amd64.tar.gz
+          sudo tar -xzf /tmp/inframap.tar.gz -C /usr/local/bin/
+          sudo chmod +x /usr/local/bin/inframap* || true
+
+      - name: Install Python Diagrams
+        run: |
+          pip install --upgrade pip
+          pip install diagrams
+
+      - name: Run Make Diagram
+        working-directory: infra
+        run: |
+          make diagram
+
+      - name: Upload Diagram Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-diagrams
+          path: |
+            docs/terraform-graph.svg
+            docs/inframap.svg
+            docs/architecture.png
+            docs/architecture.svg
+            docs/plan.json
+          retention-days: 14

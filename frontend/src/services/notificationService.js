@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// FoodRush Notification Service — Toast + Sound notifications
+// MealMate Notification Service — Toast + Sound notifications
 // ═══════════════════════════════════════════════════════════════════════════
 
 import toast from "react-hot-toast";
@@ -85,7 +85,7 @@ export function notifyOrderStatus(status, restaurantName = "") {
 
   // Browser push notification (if permission granted)
   if (Notification.permission === "granted") {
-    new Notification("FoodRush", { body: info.msg, icon: "/icon.png" });
+    new Notification("MealMate", { body: info.msg, icon: "/favicon.svg" });
   }
 }
 

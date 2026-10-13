@@ -2,6 +2,7 @@ import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Home, History, LogOut } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import { useDriverStore } from "../store/driverStore";
+import { MealMateIcon } from "../components/MealMateLogo";
 
 const BG      = "#FEFCF8";
 const TC      = "#C0401E";
@@ -27,11 +28,14 @@ export default function DriverLayout() {
         padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between",
         position: "sticky", top: 0, zIndex: 50, transition: "background 0.4s" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem", color: "#FFF5E6",
-            fontStyle: "italic" }}>f</div>
+          <MealMateIcon size={26} />
           <div>
-            <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.6)",
-              textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem", color: "#FFF5E6",
+              lineHeight: 1, fontWeight: 600 }}>
+              Meal<span style={{ color: TC_SOFT, fontWeight: 700 }}>Mate</span>
+            </div>
+            <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.6)",
+              textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700, marginTop: 2 }}>
               Driver App
             </div>
           </div>
@@ -49,6 +53,7 @@ export default function DriverLayout() {
               {isOnline ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
+
           <div style={{ width: 32, height: 32, borderRadius: "50%",
             background: "rgba(255,255,255,0.15)",
             display: "flex", alignItems: "center", justifyContent: "center",

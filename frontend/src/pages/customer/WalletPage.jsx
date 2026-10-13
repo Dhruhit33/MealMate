@@ -149,7 +149,7 @@ export default function WalletPage() {
             <span style={{
               fontSize: "0.8rem", color: "rgba(255,255,255,0.5)",
               textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600,
-            }}>FoodRush Wallet</span>
+            }}>MealMate Wallet</span>
           </div>
 
           {/* Available balance */}

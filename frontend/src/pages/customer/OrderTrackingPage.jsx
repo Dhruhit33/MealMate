@@ -12,6 +12,7 @@ import toast from "react-hot-toast";
 import api from "../../api/axios";
 import socketService from "../../services/socketService";
 import { useAuthStore } from "../../store/authStore";
+import { useAddressStore, getAddressCoords } from "../../store/addressStore";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -55,14 +56,28 @@ const homeIcon = L.icon({
   popupAnchor: [0, -44],
 });
 
-// MapUpdater to center or fit bounds
-function MapUpdater({ center }) {
+// MapUpdater to center, fit bounds, and invalidate size
+function MapUpdater({ center, dest }) {
   const map = useMap();
   useEffect(() => {
-    if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
+    map.invalidateSize();
+    const t1 = setTimeout(() => map.invalidateSize(), 200);
+    const t2 = setTimeout(() => map.invalidateSize(), 600);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [map]);
+
+  useEffect(() => {
+    if (center && dest && Array.isArray(center) && Array.isArray(dest) && !isNaN(center[0]) && !isNaN(dest[0])) {
+      try {
+        const bounds = L.latLngBounds([center, dest]);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      } catch (e) {
+        if (!isNaN(center[0]) && !isNaN(center[1])) map.setView(center, 14);
+      }
+    } else if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
       map.setView(center, map.getZoom());
     }
-  }, [center, map]);
+  }, [center?.[0], center?.[1], dest?.[0], dest?.[1], map]);
   return null;
 }
 
@@ -112,31 +127,61 @@ function getDistanceKm(p1, p2) {
   return R * c;
 }
 
-// Fetch real road geometry from OSRM driving service or curved fallback
-async function fetchRoadGeometry(start, end) {
-  if (!start || !end) return [];
+// Fetch multi-path road geometries from OSRM driving service:
+// - Primary Route: Fastest main road route (default / low traffic)
+// - Alternate Route: Bypass shortcut route (traffic diversion / alternative corridor)
+async function fetchRoadRoutes(start, end) {
+  if (!start || !end) return { primary: [], alternate: [] };
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson&alternatives=true`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      if (data.routes && data.routes[0]?.geometry?.coordinates?.length) {
-        return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      if (data.routes && data.routes.length > 0) {
+        const primary = data.routes[0]?.geometry?.coordinates?.map(c => [c[1], c[0]]) || [];
+        let alternate = data.routes[1]?.geometry?.coordinates?.map(c => [c[1], c[0]]) || [];
+
+        // If OSRM didn't return an alternate route, synthesize an intelligent arterial bypass
+        if (alternate.length === 0 && primary.length > 3) {
+          const midIdx = Math.floor(primary.length / 2);
+          const midPt = primary[midIdx];
+          const bypassWaypoint = [midPt[0] + 0.0032, midPt[1] - 0.0035];
+          try {
+            const altUrl = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${bypassWaypoint[1]},${bypassWaypoint[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+            const altRes = await fetch(altUrl);
+            if (altRes.ok) {
+              const altData = await altRes.json();
+              if (altData.routes && altData.routes[0]?.geometry?.coordinates?.length) {
+                alternate = altData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+              }
+            }
+          } catch (e) {
+            // fallback
+          }
+        }
+
+        return { primary, alternate };
       }
     }
   } catch (err) {
     console.warn("OSRM road route fetch fallback:", err);
   }
+
   // Smooth road curvature fallback
-  const steps = 16;
-  const pts = [];
+  const steps = 14;
+  const primary = [];
+  const alternate = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const lat = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.5) * 0.0006 : 0);
-    const lng = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? Math.cos(i * 1.4) * 0.0006 : 0);
-    pts.push([lat, lng]);
+    const lat1 = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.4) * 0.0006 : 0);
+    const lng1 = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? Math.cos(i * 1.3) * 0.0006 : 0);
+    primary.push([lat1, lng1]);
+
+    const lat2 = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.2) * 0.0018 : 0);
+    const lng2 = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? -Math.cos(i * 1.2) * 0.0018 : 0);
+    alternate.push([lat2, lng2]);
   }
-  return pts;
+  return { primary, alternate };
 }
 
 function sliceCompletedRoadRoute(fullRoute, currentPos) {
@@ -172,16 +217,59 @@ export default function OrderTrackingPage() {
   const [activeOrderId, setActiveOrderId] = useState(params.orderId && params.orderId !== "track" ? params.orderId : null);
   const [order, setOrder] = useState(null);
   const [deliveryInfo, setDeliveryInfo] = useState(null);
+  const [restaurantDetails, setRestaurantDetails] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [eta, setEta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [noOrdersFound, setNoOrdersFound] = useState(false);
+  const [routeMode, setRouteMode] = useState("fastest"); // "fastest" | "bypass"
   const [roadRoute, setRoadRoute] = useState([]);
   const [remainingRoadRoute, setRemainingRoadRoute] = useState([]);
   const [remainingKm, setRemainingKm] = useState(0);
+  const [alternateRoadRoute, setAlternateRoadRoute] = useState([]);
+  const [remainingAlternateRoute, setRemainingAlternateRoute] = useState([]);
+  const [alternateKm, setAlternateKm] = useState(0);
   const routeTargetKey = useRef("");
 
   const user = useAuthStore((s) => s.user);
+  const { addresses, fetchAddresses, selectedAddressId } = useAddressStore();
+
+  useEffect(() => {
+    fetchAddresses();
+  }, [fetchAddresses]);
+
+  // Target address selected by customer in My Addresses or attached to order
+  const targetAddressObj = useMemo(() => {
+    if (!addresses || addresses.length === 0) return null;
+    if (order?.deliveryAddressId) {
+      const found = addresses.find((a) => a.addressId === order.deliveryAddressId);
+      if (found) return found;
+    }
+    if (order?.deliveryAddress) {
+      const dAddr = order.deliveryAddress.toLowerCase();
+      const byStreet = addresses.find((a) => a.street && dAddr.includes(a.street.toLowerCase()));
+      if (byStreet) return byStreet;
+      const byCity = addresses.find((a) => a.city && dAddr.includes(a.city.toLowerCase()));
+      if (byCity) return byCity;
+    }
+    if (selectedAddressId) {
+      const bySel = addresses.find((a) => a.addressId === selectedAddressId);
+      if (bySel) return bySel;
+    }
+    return addresses[0];
+  }, [addresses, order?.deliveryAddressId, order?.deliveryAddress, selectedAddressId]);
+
+  // Clean formatted address to display
+  const displayAddress = useMemo(() => {
+    if (targetAddressObj) {
+      const parts = [targetAddressObj.street, targetAddressObj.city, targetAddressObj.state, targetAddressObj.pincode].filter(Boolean);
+      if (parts.length > 0) return parts.join(", ");
+    }
+    if (order?.deliveryAddress) {
+      return order.deliveryAddress.replace(/^\[.*?\]\s*/, "");
+    }
+    return "Shree annupurna dham, Adalaj, 382421";
+  }, [targetAddressObj, order?.deliveryAddress]);
 
   // Review & Rating Modal States
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -197,6 +285,10 @@ export default function OrderTrackingPage() {
   const [driverTags, setDriverTags] = useState([]);
   const hasAutoOpenedRef = useRef(false);
 
+  // Cancellation States
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
   // Check if current order was already reviewed
   useEffect(() => {
     if (activeOrderId) {
@@ -206,6 +298,21 @@ export default function OrderTrackingPage() {
       }
     }
   }, [activeOrderId]);
+
+  const handleCancelOrder = async () => {
+    if (!activeOrderId) return;
+    setCancelling(true);
+    try {
+      await api.post(`/orders/${activeOrderId}/cancel`);
+      toast.success("Order cancelled! Funds have been refunded to your wallet. 💸");
+      setShowCancelModal(false);
+      await fetchOrderAndDelivery(activeOrderId);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Could not cancel order");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   // Auto-resolve order if orderId is missing or "track"
   const resolveTargetOrder = useCallback(async () => {
@@ -244,6 +351,18 @@ export default function OrderTrackingPage() {
       const orderData = { ...res.data, status: normalizeStatus(res.data.status) };
       setOrder(orderData);
       setLoading(false);
+
+      // Fetch exact restaurant coordinates & address from restaurant-service
+      if (orderData.restaurantId) {
+        try {
+          const rRes = await api.get(`/restaurants/${orderData.restaurantId}`);
+          if (rRes.data) {
+            setRestaurantDetails(rRes.data);
+          }
+        } catch (rErr) {
+          console.warn("Could not fetch restaurant details:", rErr);
+        }
+      }
 
       // Fetch delivery status
       try {
@@ -329,55 +448,131 @@ export default function OrderTrackingPage() {
     };
   }, [activeOrderId]);
 
-  // Coordinates resolution: Balapir (Brother's Pizzariya) & Nirma University (SG Highway)
-  const defaultRestaurant = [23.1644, 72.5855]; // Balapir, Adalaj
-  const defaultCustomer   = [23.12639030, 72.54000890]; // Nirma University / SG Highway
+  // Coordinates resolution: supports Adalaj (Shree Annapurna Dham), Surat, Ahmedabad, Rajkot, etc.
+  const defaultRestaurant = [23.1644, 72.5855]; // Adalaj fallback
+  const defaultCustomer   = [23.16469190, 72.58210460]; // Shree Annapurna Dham, Adalaj fallback
+
+  // Helper to reject outdated Bhopal seed coordinates
+  const isBhopalCoords = (lat, lng) => lat && lng && Math.abs(lat - 23.2599) < 0.1 && Math.abs(lng - 77.4126) < 0.1;
 
   const restaurantLocation = useMemo(() => {
+    // 1. Exact coordinates from restaurant record in database
+    if (restaurantDetails?.latitude && restaurantDetails?.longitude) {
+      const lat = parseFloat(restaurantDetails.latitude);
+      const lng = parseFloat(restaurantDetails.longitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28 && !isBhopalCoords(lat, lng)) {
+        return [lat, lng];
+      }
+    }
+    // 2. From deliveryInfo pickupLatitude/pickupLongitude
     if (deliveryInfo?.pickupLatitude && deliveryInfo?.pickupLongitude) {
       const lat = parseFloat(deliveryInfo.pickupLatitude);
       const lng = parseFloat(deliveryInfo.pickupLongitude);
-      // Discard invalid / Bhopal / old hardcoded Paldi coordinates
-      if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25 && !(Math.abs(lat - 23.2599) < 0.2)) {
-        if (Math.abs(lat - 23.0300) < 0.005) {
-          return defaultRestaurant; // Override old hardcoded Paldi with real Balapir restaurant
-        }
+      if (!isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28 && !isBhopalCoords(lat, lng)) {
         return [lat, lng];
       }
     }
+    // 3. Fallback based on restaurant name or address text (e.g. The leela in Surat)
+    const rName = (order?.restaurantName || "").toLowerCase();
+    const rAddr = (restaurantDetails?.address || "").toLowerCase();
+    const dAddr = (order?.deliveryAddress || "").toLowerCase();
+    if (rName.includes("leela") || rAddr.includes("surat") || dAddr.includes("surat")) {
+      return [21.17263386, 72.83195231]; // Surat coordinates
+    }
+    if (rAddr.includes("rajkot") || dAddr.includes("rajkot")) {
+      return [22.3039, 70.8022]; // Rajkot coordinates
+    }
+    if (rAddr.includes("ahmedabad") || dAddr.includes("ahmedabad")) {
+      return [23.0225, 72.5714]; // Ahmedabad coordinates
+    }
     return defaultRestaurant;
-  }, [deliveryInfo]);
+  }, [restaurantDetails, deliveryInfo, order?.restaurantName, order?.deliveryAddress]);
 
   const deliveryLocation = useMemo(() => {
+    // 1. From customer's chosen address in My Addresses / AddressStore
+    if (targetAddressObj) {
+      const coords = getAddressCoords(targetAddressObj);
+      if (coords?.lat && coords?.lng && !isBhopalCoords(coords.lat, coords.lng)) {
+        return [coords.lat, coords.lng];
+      }
+    }
+    // 2. From customer's chosen address stored on the order
+    if (order?.latitude && order?.longitude) {
+      const lat = parseFloat(order.latitude);
+      const lng = parseFloat(order.longitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28 && !isBhopalCoords(lat, lng)) {
+        return [lat, lng];
+      }
+    }
+    // 3. From deliveryInfo dropoff coords
     if (deliveryInfo?.dropoffLatitude && deliveryInfo?.dropoffLongitude) {
       const lat = parseFloat(deliveryInfo.dropoffLatitude);
       const lng = parseFloat(deliveryInfo.dropoffLongitude);
-      // Discard invalid / Bhopal / old hardcoded Ellisbridge coordinates
-      if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25 && !(Math.abs(lat - 23.2599) < 0.2)) {
-        if (Math.abs(lat - 23.0450) < 0.005) {
-          return defaultCustomer; // Override old hardcoded Ellisbridge with real Nirma University
-        }
+      if (!isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28 && !isBhopalCoords(lat, lng)) {
         return [lat, lng];
       }
     }
+    // 4. Fallback based on delivery address text or restaurant location (Surat / Rajkot / etc.)
     const addr = (order?.deliveryAddress || "").toLowerCase();
-    if (addr.includes("nirma") || addr.includes("tragad") || addr.includes("sg highway")) {
-      return defaultCustomer;
+    if (addr.includes("annpurna") || addr.includes("annapurna") || addr.includes("adalaj")) {
+      return [23.16469190, 72.58210460]; // Shree Annapurna Dham, Adalaj
+    }
+    if (addr.includes("surat") || (order?.restaurantName || "").toLowerCase().includes("leela") || restaurantLocation[0] < 22.0) {
+      return [21.11697090, 72.78540090]; // Surat delivery coordinates
+    }
+    if (addr.includes("rajkot")) {
+      return [22.3039, 70.8022]; // Rajkot
+    }
+    if (addr.includes("nirma") || addr.includes("tragad")) {
+      return [23.12639030, 72.54000890]; // Nirma University
+    }
+    if (addr.includes("ahmedabad") || addr.includes("chandkheda") || addr.includes("motera")) {
+      return [23.0225, 72.5714]; // Ahmedabad
     }
     return defaultCustomer;
-  }, [deliveryInfo, order?.deliveryAddress]);
+  }, [targetAddressObj, order?.latitude, order?.longitude, order?.deliveryAddress, order?.restaurantName, deliveryInfo, restaurantLocation]);
+
+  // Dynamic city name for rider matching and status displays
+  const targetCityName = useMemo(() => {
+    const rAddr = (restaurantDetails?.address || "").toLowerCase();
+    const rName = (order?.restaurantName || "").toLowerCase();
+    const dAddr = (order?.deliveryAddress || "").toLowerCase();
+
+    if (rAddr.includes("surat") || rName.includes("leela") || dAddr.includes("surat") || (restaurantLocation && restaurantLocation[0] < 22.0)) {
+      return "Surat";
+    }
+    if (rAddr.includes("rajkot") || dAddr.includes("rajkot")) {
+      return "Rajkot";
+    }
+    if (rAddr.includes("ahmedabad") || dAddr.includes("ahmedabad")) {
+      return "Ahmedabad";
+    }
+    if (rAddr.includes("vadodara") || rAddr.includes("baroda") || dAddr.includes("vadodara")) {
+      return "Vadodara";
+    }
+    if (restaurantDetails?.address) {
+      return restaurantDetails.address.split(",")[0].trim();
+    }
+    return "Adalaj & Gandhinagar";
+  }, [restaurantDetails, order?.restaurantName, order?.deliveryAddress, restaurantLocation]);
 
   const orderStatus = order?.status || "CREATED";
   const isCancelled = orderStatus === "CANCELLED";
   const isDelivered = orderStatus === "DELIVERED" || orderStatus === "COMPLETED";
-  const isDriverPickedUp = orderStatus === "PICKED_UP" || deliveryInfo?.status === "PICKED_UP" || deliveryInfo?.status === "IN_TRANSIT";
+  const isDriverPickedUp = orderStatus === "PICKED_UP" || deliveryInfo?.status === "PICKED_UP" || deliveryInfo?.status === "IN_TRANSIT" || deliveryInfo?.status === "DELIVERING";
+  // User can cancel order anytime until driver has picked up food from restaurant
+  const canCancel = !isCancelled && !isDelivered && !isDriverPickedUp;
 
   // Check if a driver is genuinely assigned to this delivery
+  // Strictly FALSE when delivery status is PENDING or no driver has accepted yet!
   const hasDriverAssigned = Boolean(
-    (deliveryInfo?.driverId && deliveryInfo?.driverId !== "null" && !["PENDING", "CANCELLED", "FAILED"].includes(deliveryInfo?.status)) ||
-    (order?.driverId && order?.driverId !== "null") ||
-    ["DRIVER_ASSIGNED", "PICKED_UP", "IN_TRANSIT", "DELIVERED"].includes(deliveryInfo?.status) ||
-    ["PICKED_UP", "DELIVERED", "COMPLETED"].includes(orderStatus)
+    (deliveryInfo?.status &&
+      !["PENDING", "CANCELLED", "FAILED"].includes(deliveryInfo.status) &&
+      ["DRIVER_ASSIGNED", "PICKED_UP", "IN_TRANSIT", "DELIVERED"].includes(deliveryInfo.status)
+    ) ||
+    (!deliveryInfo && order?.driverId && order?.driverId !== "null" &&
+      ["PICKED_UP", "DELIVERED", "COMPLETED"].includes(orderStatus)
+    )
   );
 
   // Effective driver location - STRICTLY NULL when no driver is assigned!
@@ -402,34 +597,85 @@ export default function OrderTrackingPage() {
     return [restaurantLocation[0] - 0.010, restaurantLocation[1] - 0.008];
   }, [hasDriverAssigned, driverLocation, deliveryInfo?.driverLatitude, deliveryInfo?.driverLongitude, isDelivered, isDriverPickedUp, restaurantLocation, deliveryLocation]);
 
-  // Source and Destination for the polyline route
-  // If driver assigned:
-  //   Phase 1 (Going to Restaurant): Driver -> Restaurant (Balapir)
-  //   Phase 2 (Going to Customer): Driver -> Customer (Nirma University)
-  // If no driver assigned:
-  //   Restaurant -> Customer (shows the planned delivery route from kitchen to customer)
-  const routeStart = hasDriverAssigned ? (effectiveDriverLocation || restaurantLocation) : restaurantLocation;
-  const routeDest  = hasDriverAssigned ? (isDriverPickedUp ? deliveryLocation : restaurantLocation) : deliveryLocation;
+  // Dynamic Navigation Source & Destination:
+  // Phase 0 (!hasDriverAssigned || isDelivered): No navigation polyline!
+  // Phase 1 (hasDriverAssigned && !isDriverPickedUp): Rider -> Restaurant ONLY (never touches customer house)
+  // Phase 2 (hasDriverAssigned && isDriverPickedUp): Rider -> Customer Delivery Address
+  const navStart = useMemo(() => {
+    if (!hasDriverAssigned || isDelivered) return null;
+    return effectiveDriverLocation || restaurantLocation;
+  }, [hasDriverAssigned, isDelivered, effectiveDriverLocation, restaurantLocation]);
 
-  // Compute road geometry
+  const navDest = useMemo(() => {
+    if (!hasDriverAssigned || isDelivered) return null;
+    return isDriverPickedUp ? deliveryLocation : restaurantLocation;
+  }, [hasDriverAssigned, isDelivered, isDriverPickedUp, deliveryLocation, restaurantLocation]);
+
+  // Compute road geometry strictly for the active navigation phase
   useEffect(() => {
-    if (!routeStart || !routeDest) return;
-    const key = `${hasDriverAssigned ? (isDriverPickedUp ? "TO_CUST" : "TO_REST") : "REST_TO_CUST"}_${routeStart[0].toFixed(3)}_${routeDest[0].toFixed(3)}`;
+    // If no driver assigned or order is delivered, clear route immediately!
+    if (!hasDriverAssigned || isDelivered || !navStart || !navDest) {
+      setRoadRoute([]);
+      setRemainingRoadRoute([]);
+      setRemainingKm(0);
+      setAlternateRoadRoute([]);
+      setRemainingAlternateRoute([]);
+      setAlternateKm(0);
+      routeTargetKey.current = "";
+      return;
+    }
+
+    const phase = isDriverPickedUp ? "TO_CUST" : "TO_REST";
+    const key = `${phase}_${navStart[0].toFixed(4)}_${navStart[1].toFixed(4)}_${navDest[0].toFixed(4)}_${navDest[1].toFixed(4)}`;
 
     if (routeTargetKey.current !== key || roadRoute.length === 0) {
       routeTargetKey.current = key;
-      fetchRoadGeometry(routeStart, routeDest).then((pts) => {
-        setRoadRoute(pts);
-        const sliced = sliceCompletedRoadRoute(pts, routeStart);
-        setRemainingRoadRoute(sliced);
-        setRemainingKm(calculatePolylineDistanceKm(sliced));
+      setRoadRoute([]);
+      setRemainingRoadRoute([]);
+      setAlternateRoadRoute([]);
+      setRemainingAlternateRoute([]);
+      fetchRoadRoutes(navStart, navDest).then((routes) => {
+        if (!routes?.primary || routes.primary.length === 0) return;
+        setRoadRoute(routes.primary);
+        const slicedPrimary = sliceCompletedRoadRoute(routes.primary, navStart);
+        setRemainingRoadRoute(slicedPrimary);
+        setRemainingKm(calculatePolylineDistanceKm(slicedPrimary));
+
+        if (routes.alternate && routes.alternate.length > 0) {
+          setAlternateRoadRoute(routes.alternate);
+          const slicedAlt = sliceCompletedRoadRoute(routes.alternate, navStart);
+          setRemainingAlternateRoute(slicedAlt);
+          setAlternateKm(calculatePolylineDistanceKm(slicedAlt));
+        } else {
+          setAlternateRoadRoute([]);
+          setRemainingAlternateRoute([]);
+          setAlternateKm(0);
+        }
       });
     } else {
-      const sliced = sliceCompletedRoadRoute(roadRoute, routeStart);
-      setRemainingRoadRoute(sliced);
-      setRemainingKm(calculatePolylineDistanceKm(sliced));
+      const slicedPrimary = sliceCompletedRoadRoute(roadRoute, navStart);
+      setRemainingRoadRoute(slicedPrimary);
+      setRemainingKm(calculatePolylineDistanceKm(slicedPrimary));
+
+      if (alternateRoadRoute.length > 0) {
+        const slicedAlt = sliceCompletedRoadRoute(alternateRoadRoute, navStart);
+        setRemainingAlternateRoute(slicedAlt);
+        setAlternateKm(calculatePolylineDistanceKm(slicedAlt));
+      }
     }
-  }, [routeStart?.[0], routeStart?.[1], routeDest?.[0], routeDest?.[1], isDriverPickedUp, hasDriverAssigned]);
+  }, [
+    hasDriverAssigned,
+    isDelivered,
+    isDriverPickedUp,
+    navStart?.[0],
+    navStart?.[1],
+    navDest?.[0],
+    navDest?.[1]
+  ]);
+
+  const activePolyline = routeMode === "fastest" ? remainingRoadRoute : (remainingAlternateRoute.length > 0 ? remainingAlternateRoute : remainingRoadRoute);
+  const inactivePolyline = routeMode === "fastest" ? remainingAlternateRoute : remainingRoadRoute;
+  const activeDistance = routeMode === "fastest" ? remainingKm : (alternateKm > 0 ? alternateKm : remainingKm);
 
   // Current step index
   const currentStepIndex = useMemo(() => {
@@ -601,6 +847,17 @@ export default function OrderTrackingPage() {
           }}>
             Order Details
           </button>
+          {canCancel && (
+            <button onClick={() => setShowCancelModal(true)} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", borderRadius: 999, border: `1px solid #FECACA`,
+              background: "#FEF2F2", color: "#DC2626", fontSize: "0.85rem",
+              fontFamily: "var(--font-sans)", fontWeight: 700, cursor: "pointer",
+              transition: "all 0.15s"
+            }}>
+              <XCircle size={14} /> Cancel Order
+            </button>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -884,15 +1141,27 @@ export default function OrderTrackingPage() {
             background: CARD, borderRadius: 20, border: `1px solid ${INK_HAIR}`,
             padding: "22px 24px", boxShadow: "0 2px 10px rgba(28,18,8,0.03)"
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: `${SAFFRON}18`, display: "flex", alignItems: "center", justifyContent: "center", color: SAFFRON }}>
-                <MapPin size={18} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: `${SAFFRON}18`, display: "flex", alignItems: "center", justifyContent: "center", color: SAFFRON }}>
+                  <MapPin size={18} />
+                </div>
+                <h3 style={{ fontSize: "1rem", fontWeight: 700, color: INK, margin: 0 }}>Delivery Destination</h3>
               </div>
-              <h3 style={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Delivery Destination</h3>
+              {targetAddressObj?.label && (
+                <span style={{ fontSize: "0.74rem", fontWeight: 700, background: `${TC}15`, color: TC, padding: "3px 10px", borderRadius: 999 }}>
+                  {targetAddressObj.label === "HOME" ? "🏠 Home" : targetAddressObj.label === "WORK" ? "💼 Work" : "📍 Saved"}
+                </span>
+              )}
             </div>
-            <div style={{ fontSize: "0.92rem", color: INK, fontWeight: 600, marginBottom: 4 }}>
-              {order.deliveryAddress || "Adalaj / Annapurnadham Area, Gandhinagar"}
+            <div style={{ fontSize: "0.92rem", color: INK, fontWeight: 600, marginBottom: 4, lineHeight: 1.5 }}>
+              {displayAddress}
             </div>
+            {targetAddressObj?.city && (
+              <div style={{ fontSize: "0.78rem", color: INK_MUTED, marginTop: 4 }}>
+                Selected Area: <strong>{targetAddressObj.city}</strong> (Direct delivery to your address)
+              </div>
+            )}
             {order.specialInstructions && (
               <div style={{ fontSize: "0.82rem", color: INK_MUTED, background: `${INK_HAIR}`, padding: "8px 12px", borderRadius: 8, marginTop: 8 }}>
                 📌 Note for driver: {order.specialInstructions}
@@ -938,6 +1207,54 @@ export default function OrderTrackingPage() {
               </span>
             </div>
           </div>
+
+          {/* Cancellation Info & Action Card */}
+          {canCancel && (
+            <div style={{
+              background: "#FFF", borderRadius: 20, border: "1.5px solid #FECACA",
+              padding: "20px 24px", boxShadow: "0 2px 12px rgba(220,38,38,0.06)",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              flexWrap: "wrap", gap: 14
+            }}>
+              <div>
+                <div style={{ fontWeight: 800, color: "#991B1B", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: 7 }}>
+                  <XCircle size={17} color="#DC2626" /> Cancel Order Option
+                </div>
+                <div style={{ fontSize: "0.8rem", color: INK_SOFT, marginTop: 4, maxWidth: 360, lineHeight: 1.45 }}>
+                  You can cancel this order <strong>until the driver picks up food from the kitchen</strong>. The full amount will be credited back to your wallet instantly.
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCancelModal(true)}
+                disabled={cancelling}
+                style={{
+                  padding: "10px 20px", borderRadius: 12,
+                  border: "none", background: "#DC2626",
+                  color: "#FFF", fontWeight: 700, fontSize: "0.88rem",
+                  cursor: cancelling ? "wait" : "pointer",
+                  display: "inline-flex", alignItems: "center", gap: 7,
+                  boxShadow: "0 4px 14px rgba(220,38,38,0.3)",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = "scale(1.02)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+              >
+                {cancelling ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <XCircle size={15} />}
+                Cancel Order
+              </button>
+            </div>
+          )}
+
+          {isDriverPickedUp && !isDelivered && !isCancelled && (
+            <div style={{
+              background: `${TC}0A`, borderRadius: 16, border: `1px solid ${TC}25`,
+              padding: "14px 18px", display: "flex", alignItems: "center", gap: 10,
+              fontSize: "0.82rem", color: TC_DEEP, fontWeight: 600
+            }}>
+              <Bike size={18} style={{ flexShrink: 0, color: TC }} />
+              <span>Food has been picked up from the restaurant. Driver is en route to you, so cancellation is closed.</span>
+            </div>
+          )}
         </div>
 
         {/* Right Column: LIVE MAP & DRIVER INFORMATION */}
@@ -950,7 +1267,7 @@ export default function OrderTrackingPage() {
             boxShadow: "0 4px 20px rgba(28,18,8,0.08)"
           }}>
             <MapContainer
-              key={`order-tracking-map-${activeOrderId}`}
+              key={`order-tracking-map-${activeOrderId}-${restaurantLocation[0].toFixed(3)}-${restaurantLocation[1].toFixed(3)}`}
               center={effectiveDriverLocation || restaurantLocation}
               zoom={14}
               style={{ height: "100%", width: "100%" }}
@@ -959,7 +1276,7 @@ export default function OrderTrackingPage() {
                 attribution='&copy; OpenStreetMap contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-              <MapUpdater center={effectiveDriverLocation || restaurantLocation} />
+              <MapUpdater center={navStart || restaurantLocation} dest={navDest || deliveryLocation} />
 
               {/* Restaurant Marker */}
               <Marker position={restaurantLocation} icon={restaurantIcon}>
@@ -984,29 +1301,47 @@ export default function OrderTrackingPage() {
               <Marker position={deliveryLocation} icon={homeIcon}>
                 <Popup>
                   <strong>Your Delivery Address</strong>
-                  <br />{order.deliveryAddress || "Home / Hostel"}
+                  <br />{displayAddress}
                 </Popup>
               </Marker>
 
-              {/* Road Polyline Route (Only while en route, removed once delivered) */}
-              {!isDelivered && remainingRoadRoute && remainingRoadRoute.length > 1 && (
+              {/* Active Navigation Polyline */}
+              {!isDelivered && hasDriverAssigned && activePolyline && activePolyline.length > 1 && (
                 <>
                   {/* Soft Road Glow */}
                   <Polyline
-                    positions={remainingRoadRoute}
-                    color={hasDriverAssigned ? "#3B82F6" : "#E2E8F0"}
-                    weight={hasDriverAssigned ? 9 : 6}
-                    opacity={hasDriverAssigned ? 0.3 : 0.6}
+                    positions={activePolyline}
+                    color={routeMode === "fastest" ? "#3B82F6" : "#FBBF24"}
+                    weight={9}
+                    opacity={0.35}
                   />
-                  {/* Solid/Dashed Road Polyline */}
+                  {/* Solid Road Polyline */}
                   <Polyline
-                    positions={remainingRoadRoute}
-                    color={hasDriverAssigned ? "#1D4ED8" : "#94A3B8"}
-                    dashArray={hasDriverAssigned ? null : "6, 8"}
-                    weight={hasDriverAssigned ? 5 : 3}
-                    opacity={0.9}
+                    positions={activePolyline}
+                    color={routeMode === "fastest" ? "#1D4ED8" : "#D97706"}
+                    weight={5}
+                    opacity={0.95}
                   />
                 </>
+              )}
+
+              {/* Alternate Traffic Bypass Polyline (Dashed, Clickable) */}
+              {!isDelivered && hasDriverAssigned && inactivePolyline && inactivePolyline.length > 1 && (
+                <Polyline
+                  positions={inactivePolyline}
+                  color={routeMode === "fastest" ? "#F59E0B" : "#3B82F6"}
+                  dashArray="6, 8"
+                  weight={4}
+                  opacity={0.75}
+                  eventHandlers={{
+                    click: () => setRouteMode(prev => prev === "fastest" ? "bypass" : "fastest")
+                  }}
+                >
+                  <Popup>
+                    <strong>{routeMode === "fastest" ? "🛣️ Alternate Shortcut (Avoid Traffic)" : "⚡ Fastest Highway Route"}</strong>
+                    <br />Tap to switch route view
+                  </Popup>
+                </Polyline>
               )}
             </MapContainer>
 
@@ -1035,14 +1370,28 @@ export default function OrderTrackingPage() {
                           ? "Rider En Route to You"
                           : "Rider to Restaurant"}
                   </div>
-                  <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 800, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
                     {isDelivered
                       ? "Food arrived at your address"
                       : !hasDriverAssigned
-                        ? (orderStatus === "READY" ? "Matching nearest rider in Adalaj & Gandhinagar..." : "Chef is freshly cooking your order")
-                        : remainingKm > 0
-                          ? `${remainingKm < 1 ? `${Math.round(remainingKm * 1000)} m` : `${remainingKm.toFixed(2)} km`} left on road`
+                        ? (orderStatus === "READY" ? `Matching nearest rider in ${targetCityName}...` : "Chef is freshly cooking your order")
+                        : activeDistance > 0
+                          ? <span>{activeDistance < 1 ? `${Math.round(activeDistance * 1000)} m` : `${activeDistance.toFixed(2)} km`} left on road · {routeMode === "fastest" ? "🟢 Low Traffic" : "🟡 Avoid Traffic"}</span>
                           : "Calculating live road route..."}
+                    {!isDelivered && hasDriverAssigned && (alternateKm > 0 || remainingKm > 0) && (
+                      <button
+                        onClick={() => setRouteMode(prev => prev === "fastest" ? "bypass" : "fastest")}
+                        style={{
+                          background: routeMode === "fastest" ? "rgba(245, 158, 11, 0.22)" : "rgba(59, 130, 246, 0.22)",
+                          color: routeMode === "fastest" ? "#FBBF24" : "#93C5FD",
+                          border: routeMode === "fastest" ? "1px solid rgba(245, 158, 11, 0.45)" : "1px solid rgba(59, 130, 246, 0.45)",
+                          padding: "2px 8px", borderRadius: 8, fontSize: "0.7rem", fontWeight: 700,
+                          cursor: "pointer", transition: "all 0.15s"
+                        }}
+                      >
+                        {routeMode === "fastest" ? "🛣️ Suggest Bypass" : "⚡ Fastest Route"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1134,7 +1483,7 @@ export default function OrderTrackingPage() {
             ) : (
               <div style={{ padding: "12px 0", color: INK_SOFT, fontSize: "0.88rem", display: "flex", alignItems: "center", gap: 10 }}>
                 <Clock size={18} style={{ color: TC }} />
-                <span>Assigning nearest driver in Adalaj & Gandhinagar area...</span>
+                <span>Assigning nearest driver in {targetCityName} area...</span>
               </div>
             )}
           </div>
@@ -1164,6 +1513,60 @@ export default function OrderTrackingPage() {
               View Menu <ChevronRight size={13} />
             </button>
           </div>
+
+          {/* Cancellation status card / action */}
+          {canCancel && (
+            <div style={{
+              background: "#FFF5F5", borderRadius: 20, border: "1px solid #FECACA",
+              padding: "18px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14
+            }}>
+              <div>
+                <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#991B1B" }}>
+                  Need to cancel this order?
+                </div>
+                <div style={{ fontSize: "0.76rem", color: "#B91C1C", marginTop: 2 }}>
+                  Allowed until rider picks up food from restaurant. Full refund to wallet.
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCancelModal(true)}
+                style={{
+                  padding: "9px 18px", borderRadius: 999, border: "1px solid #DC2626",
+                  background: "#DC2626", color: "#FFF", fontSize: "0.82rem", fontWeight: 700,
+                  cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6,
+                  boxShadow: "0 2px 8px rgba(220,38,38,0.25)", transition: "all 0.15s"
+                }}
+              >
+                <XCircle size={14} /> Cancel Order
+              </button>
+            </div>
+          )}
+
+          {isDriverPickedUp && !isDelivered && !isCancelled && (
+            <div style={{
+              background: "#F8FAFC", borderRadius: 16, border: `1px solid ${INK_HAIR}`,
+              padding: "14px 18px", display: "flex", alignItems: "center", gap: 10,
+              fontSize: "0.8rem", color: INK_MUTED
+            }}>
+              <span style={{ fontSize: "1.1rem" }}>🛵</span>
+              <span>Rider has collected your meal from the kitchen. Cancellation is locked.</span>
+            </div>
+          )}
+
+          {isCancelled && (
+            <div style={{
+              background: "#FEF2F2", borderRadius: 16, border: "1px solid #FECACA",
+              padding: "16px 20px", display: "flex", alignItems: "center", gap: 12
+            }}>
+              <XCircle size={22} style={{ color: "#DC2626", flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 700, color: "#991B1B", fontSize: "0.9rem" }}>Order Cancelled</div>
+                <div style={{ fontSize: "0.78rem", color: "#DC2626", marginTop: 2 }}>
+                  Your refund has been safely returned to your MealMate wallet.
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>
@@ -1504,6 +1907,73 @@ export default function OrderTrackingPage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Order Confirmation Modal */}
+      {showCancelModal && (
+        <div onClick={() => setShowCancelModal(false)} style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(28,18,8,0.5)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 20
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "#FFF", borderRadius: 22, padding: "30px 28px",
+            maxWidth: 420, width: "100%", border: `1.5px solid ${INK_HAIR}`,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+            animation: "modal-pop 0.2s ease-out"
+          }}>
+            <div style={{
+              width: 50, height: 50, borderRadius: "50%",
+              background: "#FEE2E2", color: "#DC2626",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              margin: "0 auto 16px"
+            }}>
+              <XCircle size={26} />
+            </div>
+            <h3 style={{
+              fontFamily: "var(--font-display)", fontSize: "1.35rem",
+              fontWeight: 600, color: INK, textAlign: "center", marginBottom: 8
+            }}>
+              Cancel this order?
+            </h3>
+            <p style={{
+              fontSize: "0.88rem", color: INK_SOFT, textAlign: "center",
+              lineHeight: 1.5, marginBottom: 22
+            }}>
+              Your delivery partner has not yet picked up the food from the restaurant kitchen. You will receive an immediate full refund to your MealMate wallet.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancelling}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 12,
+                  border: `1px solid ${INK_HAIR}`, background: CARD,
+                  color: INK_SOFT, fontWeight: 600, fontSize: "0.88rem",
+                  cursor: "pointer"
+                }}
+              >
+                Keep Order
+              </button>
+              <button
+                onClick={handleCancelOrder}
+                disabled={cancelling}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 12,
+                  border: "none", background: "#DC2626",
+                  color: "#FFF", fontWeight: 700, fontSize: "0.88rem",
+                  cursor: cancelling ? "wait" : "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  boxShadow: "0 4px 14px rgba(220,38,38,0.3)"
+                }}
+              >
+                {cancelling ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : null}
+                Yes, Cancel Order
+              </button>
+            </div>
           </div>
         </div>
       )}

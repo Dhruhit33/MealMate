@@ -81,9 +81,21 @@ public class OrderService {
             BigDecimal dropoffLng = request.getLongitude();
             if ((dropoffLat == null || dropoffLat.doubleValue() == 0) && request.getDeliverAddress() != null) {
                 String addrLower = request.getDeliverAddress().toLowerCase();
-                if (addrLower.contains("nirma") || addrLower.contains("tragad") || addrLower.contains("sg highway")) {
+                if (addrLower.contains("annpurna") || addrLower.contains("annapurna") || addrLower.contains("adalaj")) {
+                    dropoffLat = BigDecimal.valueOf(23.16469190);
+                    dropoffLng = BigDecimal.valueOf(72.58210460);
+                } else if (addrLower.contains("surat")) {
+                    dropoffLat = BigDecimal.valueOf(21.11697090);
+                    dropoffLng = BigDecimal.valueOf(72.78540090);
+                } else if (addrLower.contains("rajkot")) {
+                    dropoffLat = BigDecimal.valueOf(22.30940400);
+                    dropoffLng = BigDecimal.valueOf(70.78124270);
+                } else if (addrLower.contains("nirma") || addrLower.contains("tragad") || addrLower.contains("sg highway")) {
                     dropoffLat = BigDecimal.valueOf(23.12639030);
                     dropoffLng = BigDecimal.valueOf(72.54000890);
+                } else {
+                    dropoffLat = BigDecimal.valueOf(23.16469190);
+                    dropoffLng = BigDecimal.valueOf(72.58210460);
                 }
             }
 
@@ -257,20 +269,22 @@ public class OrderService {
 
     private BigDecimal[] fetchRestaurantCoordinates(String restaurantId) {
         if (restaurantId == null || restaurantId.isBlank()) return null;
-        try {
-            org.springframework.web.client.RestClient rc = org.springframework.web.client.RestClient.create();
-            java.util.Map res = rc.get()
-                    .uri("http://localhost:8082/restaurants/{id}", restaurantId)
-                    .retrieve()
-                    .body(java.util.Map.class);
-            if (res != null && res.get("latitude") != null && res.get("longitude") != null) {
-                return new BigDecimal[]{
-                        new BigDecimal(res.get("latitude").toString()),
-                        new BigDecimal(res.get("longitude").toString())
-                };
+        String[] hosts = {"http://restaurant-service:8082", "http://localhost:8082"};
+        for (String host : hosts) {
+            try {
+                org.springframework.web.client.RestClient rc = org.springframework.web.client.RestClient.create();
+                java.util.Map res = rc.get()
+                        .uri(host + "/api/v1/restaurants/{id}", restaurantId)
+                        .retrieve()
+                        .body(java.util.Map.class);
+                if (res != null && res.get("latitude") != null && res.get("longitude") != null) {
+                    return new BigDecimal[]{
+                            new BigDecimal(res.get("latitude").toString()),
+                            new BigDecimal(res.get("longitude").toString())
+                    };
+                }
+            } catch (Exception ignored) {
             }
-        } catch (Exception e) {
-            log.warn("Could not fetch restaurant coordinates for {}: {}", restaurantId, e.getMessage());
         }
         return null;
     }

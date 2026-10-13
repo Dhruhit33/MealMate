@@ -19,7 +19,7 @@ public interface DeliveryRepo extends JpaRepository<Delivery , String> {
 
     List<Delivery> findByDriverIdOrderByCreatedAtDesc(String driverId);
 
-    @Query("SELECT d FROM Delivery d WHERE d.driverId = :driverId AND d.status IN ('DRIVER_ASSIGNED', 'PICKED_UP', 'IN_TRANSIT')")
+    @Query("SELECT d FROM Delivery d WHERE d.driverId = :driverId AND d.status IN ('PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'IN_TRANSIT')")
     Optional<Delivery> findActiveDeliveryByDriverId(@Param("driverId") String driverId);
 
     @Query("SELECT d FROM Delivery d WHERE d.status = 'PENDING' ORDER BY d.createdAt ASC")

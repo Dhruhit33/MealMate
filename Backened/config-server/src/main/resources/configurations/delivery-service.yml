@@ -47,9 +47,9 @@ jwt:
 
 delivery:
   matching:
-    radius-km: 5.0
-    max-drivers: 10
-    retry-radius-km: 10.0
+    radius-km: 25.0
+    max-drivers: 15
+    retry-radius-km: 25.0
   tracking:
     update-interval-seconds: 3
   auto-reassign:

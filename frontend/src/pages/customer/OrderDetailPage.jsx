@@ -94,8 +94,6 @@ export default function OrderDetailPage() {
   const order = currentOrder;
   const isCancelled = order.status === "CANCELLED";
   const isDelivered = order.status === "DELIVERED" || order.status === "COMPLETED";
-  const canCancel = order.status === "CREATED";
-  const currentStepIdx = getStepIndex(order.status);
 
   // Delivery info from delivery-service
   const driverName = deliveryInfo?.driverName || order.driverName;
@@ -103,6 +101,12 @@ export default function OrderDetailPage() {
   const hasDriver = !!driverName;
   const deliveryStatus = deliveryInfo?.status || null;
   const estimatedMins = deliveryInfo?.estimatedDeliveryMins || order.estimatedDeliveryMins;
+
+  // Order can be cancelled by user anytime until the driver picks up the order from the restaurant
+  const isDriverPickedUp = ["PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERING", "DELIVERED"].includes(deliveryStatus) ||
+    ["PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED"].includes(order.status);
+  const canCancel = !isCancelled && !isDelivered && !isDriverPickedUp;
+  const currentStepIdx = getStepIndex(order.status);
 
   // Payment status derived from order lifecycle
   const paymentStatus = isCancelled

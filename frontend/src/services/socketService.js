@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// FoodRush WebSocket Service — Real-time order tracking & notifications
+// MealMate WebSocket Service — Real-time order tracking & notifications
 // Uses native WebSocket with STOMP-like fallback via @stomp/stompjs
 // ═══════════════════════════════════════════════════════════════════════════
 

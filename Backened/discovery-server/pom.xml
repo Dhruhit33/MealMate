@@ -15,7 +15,7 @@
     <artifactId>discovery-server</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>discovery-server</name>
-    <description>Eureka Discovery Server for FoodRush</description>
+    <description>Eureka Discovery Server for MealMate</description>
 
     <properties>
         <java.version>21</java.version>

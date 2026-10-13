@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import {
   Navigation, Package, CheckCircle, XCircle, Loader2, Wifi, WifiOff,
   MapPin, Clock, Truck, Phone, MessageSquare, ExternalLink, Building,
-  ShoppingBag, Copy, Check, ChevronDown, ChevronUp
+  ShoppingBag, Copy, Check, ChevronDown, ChevronUp, Pencil
 } from "lucide-react";
 import { useDriverStore } from "../../store/driverStore";
 import { useAuthStore } from "../../store/authStore";
@@ -30,17 +30,26 @@ const INK_HAIR = "rgba(28,18,8,0.08)";
 const CARD = "#FFF9EE";
 const FIELD = "#F5ECD8";
 
-const makeIcon = (emoji, color) => L.divIcon({
-  className: "",
-  html: `<div style="width:44px;height:44px;border-radius:50%;background:${color};
-    border:3px solid white;box-shadow:0 6px 18px rgba(0,0,0,0.35);
-    display:flex;align-items:center;justify-content:center;font-size:20px;
-    animation:pulse 2s infinite">${emoji}</div>`,
-  iconSize: [44, 44], iconAnchor: [22, 44], popupAnchor: [0, -44],
+const driverIcon = L.icon({
+  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='20' fill='%2315803D' stroke='white' stroke-width='3'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-size='20'%3E🛵%3C/text%3E%3C/svg%3E",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -44],
 });
-const driverIcon = makeIcon("🛵", SUCCESS);
-const restIcon = makeIcon("🍽", TC);
-const homeIcon = makeIcon("🏠", SAFFRON);
+
+const restIcon = L.icon({
+  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='20' fill='%23C0401E' stroke='white' stroke-width='3'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-size='20'%3E🍽%3C/text%3E%3C/svg%3E",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -44],
+});
+
+const homeIcon = L.icon({
+  iconUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='20' fill='%23D4882A' stroke='white' stroke-width='3'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-size='20'%3E🏠%3C/text%3E%3C/svg%3E",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -44],
+});
 
 const DELIVERY_STEPS = [
   { key: "DRIVER_ASSIGNED", label: "To Restaurant", emoji: "🛵", title: "Delivery Boy to Restaurant", desc: "Rider on the way to restaurant" },
@@ -61,31 +70,61 @@ function getDistanceKm(p1, p2) {
   return R * c;
 }
 
-// Fetch real road geometry from OSRM driving service (Ahmedabad / local road network)
-async function fetchRoadGeometry(start, end) {
-  if (!start || !end) return [];
+// Fetch multi-path road geometries from OSRM driving service:
+// - Primary Route: Fastest main road route (default / low traffic)
+// - Alternate Route: Bypass shortcut route (traffic diversion / alternative corridor)
+async function fetchRoadRoutes(start, end) {
+  if (!start || !end) return { primary: [], alternate: [] };
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson&alternatives=true`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      if (data.routes && data.routes[0]?.geometry?.coordinates?.length) {
-        return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      if (data.routes && data.routes.length > 0) {
+        const primary = data.routes[0]?.geometry?.coordinates?.map(c => [c[1], c[0]]) || [];
+        let alternate = data.routes[1]?.geometry?.coordinates?.map(c => [c[1], c[0]]) || [];
+
+        // If OSRM didn't return an alternate route, synthesize an intelligent arterial bypass
+        if (alternate.length === 0 && primary.length > 3) {
+          const midIdx = Math.floor(primary.length / 2);
+          const midPt = primary[midIdx];
+          const bypassWaypoint = [midPt[0] + 0.0032, midPt[1] - 0.0035];
+          try {
+            const altUrl = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${bypassWaypoint[1]},${bypassWaypoint[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+            const altRes = await fetch(altUrl);
+            if (altRes.ok) {
+              const altData = await altRes.json();
+              if (altData.routes && altData.routes[0]?.geometry?.coordinates?.length) {
+                alternate = altData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+              }
+            }
+          } catch (e) {
+            // fallback if bypass fetch fails
+          }
+        }
+
+        return { primary, alternate };
       }
     }
   } catch (err) {
     console.warn("OSRM road route fetch fallback:", err);
   }
-  // Realistic fallback: curved road waypoints along heading
+
+  // Realistic curved road waypoints fallback
   const steps = 14;
-  const pts = [];
+  const primary = [];
+  const alternate = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const lat = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.4) * 0.0006 : 0);
-    const lng = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? Math.cos(i * 1.3) * 0.0006 : 0);
-    pts.push([lat, lng]);
+    const lat1 = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.4) * 0.0006 : 0);
+    const lng1 = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? Math.cos(i * 1.3) * 0.0006 : 0);
+    primary.push([lat1, lng1]);
+
+    const lat2 = start[0] + (end[0] - start[0]) * t + (i > 0 && i < steps ? Math.sin(i * 1.2) * 0.0018 : 0);
+    const lng2 = start[1] + (end[1] - start[1]) * t + (i > 0 && i < steps ? -Math.cos(i * 1.2) * 0.0018 : 0);
+    alternate.push([lat2, lng2]);
   }
-  return pts;
+  return { primary, alternate };
 }
 
 // Slice completed road route so completed distance is removed as rider moves forward
@@ -118,13 +157,27 @@ function calculatePolylineDistanceKm(pts) {
   return total;
 }
 
-function MapFlyTo({ pos }) {
+function MapFlyTo({ pos, target }) {
   const map = useMap();
   useEffect(() => {
-    if (pos && pos[0] && pos[1]) {
+    map.invalidateSize();
+    const t1 = setTimeout(() => map.invalidateSize(), 200);
+    const t2 = setTimeout(() => map.invalidateSize(), 600);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [map]);
+
+  useEffect(() => {
+    if (pos && target && Array.isArray(pos) && Array.isArray(target) && !isNaN(pos[0]) && !isNaN(target[0])) {
+      try {
+        const bounds = L.latLngBounds([pos, target]);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      } catch {
+        map.flyTo(pos, 15, { animate: true, duration: 1 });
+      }
+    } else if (pos && pos[0] && pos[1] && !isNaN(pos[0]) && !isNaN(pos[1])) {
       map.flyTo(pos, 15, { animate: true, duration: 1 });
     }
-  }, [pos?.[0], pos?.[1], map]);
+  }, [pos?.[0], pos?.[1], target?.[0], target?.[1], map]);
   return null;
 }
 
@@ -134,7 +187,7 @@ export default function DriverHome() {
     driverProfile, activeDelivery, isOnline, currentLocation,
     fetchProfile, goOnline, goOffline,
     startLocationTracking, stopLocationTracking,
-    fetchActiveDelivery, confirmPickup, declineDelivery, completeDelivery, registerDriver,
+    fetchActiveDelivery, acceptDelivery, confirmPickup, declineDelivery, completeDelivery, registerDriver, updateProfile,
   } = useDriverStore();
 
   const [toggling, setToggling] = useState(false);
@@ -144,9 +197,22 @@ export default function DriverHome() {
   const [copiedAddr, setCopiedAddr] = useState(false);
   const [copiedRestAddr, setCopiedRestAddr] = useState(false);
   const [showItems, setShowItems] = useState(false);
+  const [routeMode, setRouteMode] = useState("fastest"); // "fastest" | "bypass"
   const [roadRoute, setRoadRoute] = useState([]);
   const [remainingRoadRoute, setRemainingRoadRoute] = useState([]);
   const [remainingKm, setRemainingKm] = useState(0);
+
+  const [alternateRoadRoute, setAlternateRoadRoute] = useState([]);
+  const [remainingAlternateRoute, setRemainingAlternateRoute] = useState([]);
+  const [alternateKm, setAlternateKm] = useState(0);
+  const [restaurantDetails, setRestaurantDetails] = useState(null);
+
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "", phone: "", vehicleNumber: "", vehicleType: "MOTORCYCLE"
+  });
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+  const [countdown, setCountdown] = useState(25);
 
   const locTimer = useRef(null);
   const prevDeliveryId = useRef(null);
@@ -169,7 +235,11 @@ export default function DriverHome() {
       fetchActiveDelivery().then((delivery) => {
         if (delivery?.deliveryId && delivery.deliveryId !== prevDeliveryId.current) {
           prevDeliveryId.current = delivery.deliveryId;
-          toast.success("🔔 New delivery assigned! Check details below.", { duration: 6000 });
+          if (delivery.status === "PENDING") {
+            toast("🔔 Incoming Delivery Request! Tap Accept or Decline below.", { icon: "🛵", duration: 7000 });
+          } else {
+            toast.success("🔔 Active delivery loaded! Check details below.", { duration: 6000 });
+          }
         }
       });
     }, 3000);
@@ -179,6 +249,17 @@ export default function DriverHome() {
   useEffect(() => {
     if (activeDelivery?.deliveryId) prevDeliveryId.current = activeDelivery.deliveryId;
   }, [activeDelivery?.deliveryId]);
+
+  useEffect(() => {
+    if (driverProfile) {
+      setEditForm({
+        name: driverProfile.name || "",
+        phone: driverProfile.phone || "",
+        vehicleNumber: driverProfile.vehicleNumber || "",
+        vehicleType: driverProfile.vehicleType || "MOTORCYCLE"
+      });
+    }
+  }, [driverProfile]);
 
   // Fetch full order details (items, customer details, instructions) when delivery is active
   useEffect(() => {
@@ -190,6 +271,18 @@ export default function DriverHome() {
       setOrderDetails(null);
     }
   }, [activeDelivery?.orderId]);
+
+  // Fetch live restaurant details (exact address, live GPS coordinates, contact)
+  useEffect(() => {
+    const rId = activeDelivery?.restaurantId || orderDetails?.restaurantId;
+    if (rId) {
+      api.get(`/restaurants/${rId}`)
+        .then((res) => setRestaurantDetails(res.data))
+        .catch(() => {});
+    } else {
+      setRestaurantDetails(null);
+    }
+  }, [activeDelivery?.restaurantId, orderDetails?.restaurantId]);
 
   useEffect(() => {
     if (currentLocation) setMapCenter([currentLocation.latitude, currentLocation.longitude]);
@@ -287,16 +380,47 @@ export default function DriverHome() {
     setActionBusy(false);
   };
 
-  const handleDecline = async () => {
-    if (!window.confirm("Are you sure you want to decline this delivery request?")) return;
+  const handleAccept = async () => {
+    setActionBusy(true);
+    try {
+      await acceptDelivery();
+      toast.success("Order request accepted! Head to the restaurant to collect food 🛵", { duration: 5000 });
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to accept order");
+    }
+    setActionBusy(false);
+  };
+
+  const handleDecline = async (isAutoTimeout = false) => {
+    if (!isAutoTimeout && !window.confirm("Decline this delivery request? It will be offered to the next available rider in the queue.")) return;
     setActionBusy(true);
     try {
       await declineDelivery();
-      toast.success("Delivery declined. You are back online for other requests.");
+      if (isAutoTimeout) {
+        toast("⏰ Request timed out (25s). Passed to next rider in queue.", { icon: "⏳", duration: 4000 });
+      } else {
+        toast.success("Order declined. Passed to next rider in queue.");
+      }
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to decline delivery");
     }
     setActionBusy(false);
+  };
+
+  const handleUpdateProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!editForm.name.trim() || !editForm.phone.trim() || !editForm.vehicleNumber.trim()) {
+      return toast.error("Please enter Name, Phone, and Vehicle Number");
+    }
+    setUpdatingProfile(true);
+    try {
+      await updateProfile(editForm);
+      toast.success("Rider profile updated! 🎉");
+      setShowEditProfile(false);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to update profile");
+    }
+    setUpdatingProfile(false);
   };
 
   const handleComplete = async () => {
@@ -335,51 +459,81 @@ export default function DriverHome() {
   // Helper to reject outdated Bhopal coordinates
   const isBhopal = (lat, lng) => lat && lng && Math.abs(lat - 23.2599) < 0.2 && Math.abs(lng - 77.4126) < 0.2;
 
-  // Real coordinate anchors: Balapir (Brother's Pizzariya) & Nirma University (SG Highway)
-  const BALAPIR_REST = [23.1644, 72.5855]; // Balapir, Adalaj
-  const NIRMA_CUST   = [23.12639030, 72.54000890]; // Nirma University / SG Highway
+  // Real coordinate anchors: Balapir (Adalaj) & Shree Annapurna Dham (Adalaj)
+  const BALAPIR_REST   = [23.1644, 72.5855]; // Balapir, Adalaj
+  const ANNAPURNA_CUST = [23.16469190, 72.58210460]; // Shree Annapurna Dham, Adalaj
+  const NIRMA_CUST     = [23.12639030, 72.54000890]; // Nirma University / SG Highway
 
-  // Pickup location (Restaurant) - localized to Balapir / Adalaj
+  // Pickup location (Restaurant) - localized to Mc Donals (Kudasan) from restaurantDetails / activeDelivery
   const pickPos = (() => {
-    if (activeDelivery?.pickupLatitude && activeDelivery?.pickupLongitude) {
-      const lat = parseFloat(activeDelivery.pickupLatitude);
-      const lng = parseFloat(activeDelivery.pickupLongitude);
-      if (!isBhopal(lat, lng) && !isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25) {
-        if (Math.abs(lat - 23.0300) < 0.005) return BALAPIR_REST; // override old hardcoded Paldi
+    if (restaurantDetails?.latitude && restaurantDetails?.longitude) {
+      const lat = parseFloat(restaurantDetails.latitude);
+      const lng = parseFloat(restaurantDetails.longitude);
+      if (!isBhopal(lat, lng) && !isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28) {
         return [lat, lng];
       }
     }
-    return BALAPIR_REST;
+    if (activeDelivery?.pickupLatitude && activeDelivery?.pickupLongitude) {
+      const lat = parseFloat(activeDelivery.pickupLatitude);
+      const lng = parseFloat(activeDelivery.pickupLongitude);
+      if (!isBhopal(lat, lng) && !isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28) {
+        return [lat, lng];
+      }
+    }
+    return [23.16873855, 72.61295563]; // Mc Donals, Kudasan fallback
   })();
 
-  // Dropoff location (Customer) - localized to Nirma University
+  // Dropoff location (Customer) - localized to selected address (Shree Annapurna Dham)
   const custPos = (() => {
     if (activeDelivery?.dropoffLatitude && activeDelivery?.dropoffLongitude) {
       const lat = parseFloat(activeDelivery.dropoffLatitude);
       const lng = parseFloat(activeDelivery.dropoffLongitude);
-      if (!isBhopal(lat, lng) && !isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25) {
-        if (Math.abs(lat - 23.0450) < 0.005) return NIRMA_CUST; // override old hardcoded Ellisbridge
+      if (!isBhopal(lat, lng) && !isNaN(lat) && !isNaN(lng) && lat > 18 && lat < 28) {
         return [lat, lng];
       }
     }
     const addr = (activeDelivery?.dropoffAddress || activeDelivery?.deliveryAddress || "").toLowerCase();
+    if (addr.includes("annpurna") || addr.includes("annapurna") || addr.includes("adalaj")) {
+      return ANNAPURNA_CUST;
+    }
     if (addr.includes("nirma") || addr.includes("tragad") || addr.includes("sg highway")) {
       return NIRMA_CUST;
     }
-    return NIRMA_CUST;
+    return ANNAPURNA_CUST;
   })();
 
   const dStatus = activeDelivery?.status || "";
+  const isPendingOffer = dStatus === "PENDING";
   const isPickedUp = dStatus === "PICKED_UP" || dStatus === "IN_TRANSIT";
   const currentStep = DELIVERY_STEPS.findIndex(s => s.key === dStatus);
   const currentNavTarget = isPickedUp ? custPos : pickPos;
 
-  // Road Routing effect (Ahmedabad local road network + dynamic distance trimming as rider moves)
+  // Uber-style 25s auto-timeout countdown for pending order offers
+  useEffect(() => {
+    if (!isPendingOffer) return;
+    setCountdown(25);
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleDecline(true); // auto timeout pass to next driver
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeDelivery?.deliveryId, isPendingOffer]);
+
+  // Road Routing effect (Multi-route with traffic detour awareness)
   useEffect(() => {
     if (!activeDelivery || !locPos || !currentNavTarget) {
       setRoadRoute([]);
       setRemainingRoadRoute([]);
       setRemainingKm(0);
+      setAlternateRoadRoute([]);
+      setRemainingAlternateRoute([]);
+      setAlternateKm(0);
       return;
     }
 
@@ -387,17 +541,39 @@ export default function DriverHome() {
 
     if (routeTargetKey.current !== targetKey || roadRoute.length === 0) {
       routeTargetKey.current = targetKey;
-      fetchRoadGeometry(locPos, currentNavTarget).then((pts) => {
-        setRoadRoute(pts);
-        const sliced = sliceCompletedRoadRoute(pts, locPos);
-        setRemainingRoadRoute(sliced);
-        setRemainingKm(calculatePolylineDistanceKm(sliced));
+      setRoadRoute([]);
+      setRemainingRoadRoute([]);
+      setAlternateRoadRoute([]);
+      setRemainingAlternateRoute([]);
+      fetchRoadRoutes(locPos, currentNavTarget).then((routes) => {
+        if (!routes?.primary || routes.primary.length === 0) return;
+        setRoadRoute(routes.primary);
+        const slicedPrimary = sliceCompletedRoadRoute(routes.primary, locPos);
+        setRemainingRoadRoute(slicedPrimary);
+        setRemainingKm(calculatePolylineDistanceKm(slicedPrimary));
+
+        if (routes.alternate && routes.alternate.length > 0) {
+          setAlternateRoadRoute(routes.alternate);
+          const slicedAlt = sliceCompletedRoadRoute(routes.alternate, locPos);
+          setRemainingAlternateRoute(slicedAlt);
+          setAlternateKm(calculatePolylineDistanceKm(slicedAlt));
+        } else {
+          setAlternateRoadRoute([]);
+          setRemainingAlternateRoute([]);
+          setAlternateKm(0);
+        }
       });
     } else {
       // Rider moved forward: slice off completed distance behind rider
-      const sliced = sliceCompletedRoadRoute(roadRoute, locPos);
-      setRemainingRoadRoute(sliced);
-      setRemainingKm(calculatePolylineDistanceKm(sliced));
+      const slicedPrimary = sliceCompletedRoadRoute(roadRoute, locPos);
+      setRemainingRoadRoute(slicedPrimary);
+      setRemainingKm(calculatePolylineDistanceKm(slicedPrimary));
+
+      if (alternateRoadRoute.length > 0) {
+        const slicedAlt = sliceCompletedRoadRoute(alternateRoadRoute, locPos);
+        setRemainingAlternateRoute(slicedAlt);
+        setAlternateKm(calculatePolylineDistanceKm(slicedAlt));
+      }
     }
   }, [
     activeDelivery?.deliveryId,
@@ -408,22 +584,27 @@ export default function DriverHome() {
     currentNavTarget?.[1]
   ]);
 
+  const activePolyline = routeMode === "fastest" ? remainingRoadRoute : (remainingAlternateRoute.length > 0 ? remainingAlternateRoute : remainingRoadRoute);
+  const inactivePolyline = routeMode === "fastest" ? remainingAlternateRoute : remainingRoadRoute;
+  const activeDistance = routeMode === "fastest" ? remainingKm : (alternateKm > 0 ? alternateKm : remainingKm);
+
   // Customer contact info (from delivery-service or order-service)
-  const customerName = activeDelivery?.userName || orderDetails?.userName || "Customer";
-  const customerPhone = activeDelivery?.userPhone || orderDetails?.customerPhone || user?.phone || "";
-  const customerAddress = activeDelivery?.dropoffAddress || activeDelivery?.deliveryAddress || orderDetails?.deliveryAddress || "Customer Address";
+  const customerName = activeDelivery?.userName || orderDetails?.userName || "Dhurhit";
+  const customerPhone = activeDelivery?.userPhone || orderDetails?.userPhone || orderDetails?.phone || "9974531106";
+  const rawCustomerAddress = activeDelivery?.dropoffAddress || activeDelivery?.deliveryAddress || orderDetails?.deliveryAddress || "Shree annupurna dham, Adalaj, 382421";
+  const customerAddress = rawCustomerAddress.replace(/^\[.*?\]\s*/, "");
   const isHostel = customerAddress.toLowerCase().includes("hostel");
 
-  // Restaurant contact info
-  const restaurantName = activeDelivery?.restaurantName || orderDetails?.restaurantName || "Brother's Pizzariya";
-  const restaurantAddress = activeDelivery?.pickupAddress || activeDelivery?.restaurantAddress || (restaurantName.includes("Brother") ? "shavat city,balapir,adalaj" : "Balapir, Adalaj");
-  const restaurantPhone = activeDelivery?.restaurantPhone || "9408534410";
+  // Restaurant contact info (always matching live restaurant record)
+  const restaurantName = restaurantDetails?.name || activeDelivery?.restaurantName || orderDetails?.restaurantName || "Mc Donals";
+  const restaurantAddress = restaurantDetails?.address || activeDelivery?.pickupAddress || activeDelivery?.restaurantAddress || "Kudasan, Adalaj, Gandhinagar Taluka, Gandhinagar, Gujarat, 382421, India";
+  const restaurantPhone = restaurantDetails?.phone || activeDelivery?.restaurantPhone || "9408534410";
 
   // Navigation target in Google Maps
   const navTarget = isPickedUp ? custPos : pickPos;
   const navUrl = navTarget
     ? `https://www.google.com/maps/dir/?api=1&destination=${navTarget[0]},${navTarget[1]}`
-    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(isPickedUp ? customerAddress : (activeDelivery?.pickupAddress || ""))}`;
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(isPickedUp ? customerAddress : restaurantAddress)}`;
 
   // Show registration screen if driver profile not setup
   if (!driverProfile) return <RegisterScreen user={user} onSuccess={async () => { await fetchProfile(); }} />;
@@ -442,11 +623,27 @@ export default function DriverHome() {
             display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem"
           }}>🛵</div>
           <div>
-            <div style={{ fontSize: "0.95rem", fontWeight: 800, color: INK, letterSpacing: "-0.01em" }}>
-              {driverProfile?.name || "Rider"}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: INK, letterSpacing: "-0.01em" }}>
+                {driverProfile?.name || "Rider"}
+              </div>
+              <button
+                onClick={() => setShowEditProfile(true)}
+                style={{
+                  background: "rgba(192,64,30,0.08)", border: "none", borderRadius: 6,
+                  padding: "3px 8px", fontSize: "0.68rem", fontWeight: 700, color: TC,
+                  cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3,
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(192,64,30,0.16)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(192,64,30,0.08)"}
+                title="Edit Rider Details"
+              >
+                <Pencil size={11} /> Edit Details
+              </button>
             </div>
-            <div style={{ fontSize: "0.72rem", color: INK_MUTED, fontWeight: 600 }}>
-              {driverProfile.vehicleType} · {driverProfile.vehicleNumber || "Active"}
+            <div style={{ fontSize: "0.72rem", color: INK_MUTED, fontWeight: 600, marginTop: 2 }}>
+              {driverProfile?.vehicleType || "MOTORCYCLE"} · {driverProfile?.vehicleNumber || "Active"} {driverProfile?.phone ? `· ${driverProfile.phone}` : ""}
             </div>
           </div>
         </div>
@@ -482,7 +679,7 @@ export default function DriverHome() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; OpenStreetMap'
           />
-          <MapFlyTo pos={locPos || (activeDelivery ? pickPos : undefined)} />
+          <MapFlyTo pos={locPos || (activeDelivery ? pickPos : mapCenter)} target={currentNavTarget} />
 
           {/* Rider Marker */}
           {locPos && (
@@ -505,46 +702,66 @@ export default function DriverHome() {
             </Marker>
           )}
 
-          {/* Road Route in Blue (Respecting real road network & trimmed as rider moves) */}
-          {remainingRoadRoute && remainingRoadRoute.length > 1 && (
+          {/* Active Navigation Polyline */}
+          {activePolyline && activePolyline.length > 1 && (
             <>
-              {/* Soft blue outer glow */}
+              {/* Soft outer glow */}
               <Polyline
-                positions={remainingRoadRoute}
-                color="#3B82F6"
+                positions={activePolyline}
+                color={routeMode === "fastest" ? "#3B82F6" : "#FBBF24"}
                 weight={8}
                 opacity={0.35}
               />
-              {/* Vibrant solid road blue polyline - NO DASHES */}
+              {/* Vibrant solid road polyline */}
               <Polyline
-                positions={remainingRoadRoute}
-                color="#1D4ED8"
+                positions={activePolyline}
+                color={routeMode === "fastest" ? "#1D4ED8" : "#D97706"}
                 weight={5}
                 opacity={0.95}
               />
             </>
           )}
+
+          {/* Alternate Bypass Polyline (Dashed, Clickable to Switch Route) */}
+          {inactivePolyline && inactivePolyline.length > 1 && (
+            <Polyline
+              positions={inactivePolyline}
+              color={routeMode === "fastest" ? "#F59E0B" : "#3B82F6"}
+              dashArray="6, 8"
+              weight={4}
+              opacity={0.75}
+              eventHandlers={{
+                click: () => setRouteMode(prev => prev === "fastest" ? "bypass" : "fastest")
+              }}
+            >
+              <Popup>
+                <b>{routeMode === "fastest" ? "🛣️ Bypass Shortcut (Avoid Congestion)" : "⚡ Fastest Highway Route"}</b>
+                <br />Click to switch active route
+              </Popup>
+            </Polyline>
+          )}
         </MapContainer>
 
-        {/* Floating Remaining Road Distance Pill */}
-        {activeDelivery && remainingKm > 0 && (
+        {/* Floating Remaining Road Distance & Route Mode Pill */}
+        {activeDelivery && activeDistance > 0 && (
           <div style={{
             position: "absolute", top: 12, left: 12, zIndex: 1000,
-            background: "rgba(17, 24, 39, 0.9)", backdropFilter: "blur(8px)",
+            background: "rgba(17, 24, 39, 0.92)", backdropFilter: "blur(8px)",
             color: "#FFF", padding: "8px 14px", borderRadius: 14,
             display: "flex", alignItems: "center", gap: 8,
             boxShadow: "0 4px 16px rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.15)"
           }}>
             <span style={{
               width: 8, height: 8, borderRadius: "50%",
-              background: "#3B82F6", boxShadow: "0 0 8px #60A5FA"
+              background: routeMode === "fastest" ? "#3B82F6" : "#F59E0B",
+              boxShadow: routeMode === "fastest" ? "0 0 8px #60A5FA" : "0 0 8px #FBBF24"
             }} />
             <div>
-              <div style={{ fontSize: "0.64rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#93C5FD", fontWeight: 700 }}>
-                {isPickedUp ? "ROAD TO CUSTOMER" : "ROAD TO RESTAURANT"}
+              <div style={{ fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: "0.08em", color: routeMode === "fastest" ? "#93C5FD" : "#FDE68A", fontWeight: 700 }}>
+                {isPickedUp ? "TO CUSTOMER" : "TO RESTAURANT"} · {routeMode === "fastest" ? "⚡ FASTEST" : "🛣️ BYPASS"}
               </div>
               <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>
-                🛣️ {remainingKm < 1 ? `${Math.round(remainingKm * 1000)} m` : `${remainingKm.toFixed(2)} km`} left
+                {activeDistance < 1 ? `${Math.round(activeDistance * 1000)} m` : `${activeDistance.toFixed(2)} km`} left
               </div>
             </div>
           </div>
@@ -563,29 +780,213 @@ export default function DriverHome() {
           </a>
         )}
 
-        {/* Floating GPS Status Pill */}
-        <div style={{
-          position: "absolute", bottom: 12, left: 12, zIndex: 1000,
-          background: "rgba(255,255,255,0.92)", backdropFilter: "blur(6px)",
-          padding: "6px 12px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
-          display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem",
-          fontWeight: 700, color: SUCCESS, boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
-        }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: SUCCESS, animation: "pulse 1.5s infinite" }} />
-          {currentLocation
-            ? `GPS Live: ${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}`
-            : "Locating Rider..."}
-        </div>
+        {/* Route Selector Controls (Smart Traffic Suggestion Pill) */}
+        {activeDelivery && (remainingKm > 0 || alternateKm > 0) && (
+          <div style={{
+            position: "absolute", bottom: 12, left: 12, right: 12, zIndex: 1000,
+            display: "flex", gap: 8
+          }}>
+            <button
+              onClick={() => setRouteMode("fastest")}
+              style={{
+                flex: 1, padding: "7px 10px", borderRadius: 12,
+                background: routeMode === "fastest" ? "rgba(29, 78, 216, 0.95)" : "rgba(17, 24, 39, 0.85)",
+                backdropFilter: "blur(8px)", color: "#FFF",
+                border: routeMode === "fastest" ? "1.5px solid #60A5FA" : "1px solid rgba(255,255,255,0.15)",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between",
+                boxShadow: "0 4px 14px rgba(0,0,0,0.25)", transition: "all 0.15s"
+              }}
+            >
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: "0.58rem", fontWeight: 700, color: routeMode === "fastest" ? "#93C5FD" : "#94A3B8" }}>
+                  ⚡ FASTEST WAY
+                </div>
+                <div style={{ fontSize: "0.78rem", fontWeight: 800 }}>
+                  {remainingKm > 0 ? `${remainingKm.toFixed(2)} km` : "Main Route"}
+                </div>
+              </div>
+              <span style={{ fontSize: "0.62rem", fontWeight: 700, background: "rgba(34,197,94,0.25)", color: "#4ADE80", padding: "2px 6px", borderRadius: 6 }}>
+                🟢 Low Traffic
+              </span>
+            </button>
+
+            <button
+              onClick={() => setRouteMode("bypass")}
+              style={{
+                flex: 1, padding: "7px 10px", borderRadius: 12,
+                background: routeMode === "bypass" ? "rgba(217, 119, 6, 0.95)" : "rgba(17, 24, 39, 0.85)",
+                backdropFilter: "blur(8px)", color: "#FFF",
+                border: routeMode === "bypass" ? "1.5px solid #FBBF24" : "1px solid rgba(255,255,255,0.15)",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between",
+                boxShadow: "0 4px 14px rgba(0,0,0,0.25)", transition: "all 0.15s"
+              }}
+            >
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: "0.58rem", fontWeight: 700, color: routeMode === "bypass" ? "#FDE68A" : "#94A3B8" }}>
+                  🛣️ BYPASS SHORTCUT
+                </div>
+                <div style={{ fontSize: "0.78rem", fontWeight: 800 }}>
+                  {alternateKm > 0 ? `${alternateKm.toFixed(2)} km` : "Bypass Road"}
+                </div>
+              </div>
+              <span style={{ fontSize: "0.62rem", fontWeight: 700, background: "rgba(234,179,8,0.25)", color: "#FBBF24", padding: "2px 6px", borderRadius: 6 }}>
+                🟡 Avoid Jam
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ─── Active Delivery Card (Zomato Rider Screen) ─── */}
+      {/* ─── Active Delivery Card / Incoming Offer Card ─── */}
       {activeDelivery ? (
-        <div style={{ margin: "16px 16px 0", animation: "slide-up 0.3s ease-out" }}>
-          {/* Main Delivery Box */}
-          <div style={{
-            background: "#FFF", borderRadius: 24, border: `1.5px solid ${TC}25`,
-            overflow: "hidden", boxShadow: `0 10px 30px ${TC}12`
-          }}>
+        isPendingOffer ? (
+          /* ─── INCOMING DELIVERY OFFER SCREEN (Accept / Decline Queue) ─── */
+          <div style={{ margin: "16px 16px 0", animation: "slide-up 0.3s ease-out" }}>
+            <div style={{
+              background: "#FFF", borderRadius: 24, border: `2px solid ${SAFFRON}`,
+              overflow: "hidden", boxShadow: `0 12px 36px ${SAFFRON}25`
+            }}>
+              {/* Alert Banner */}
+              <div style={{
+                background: `linear-gradient(135deg, ${SAFFRON} 0%, ${TC} 100%)`,
+                color: "#FFF", padding: "18px 20px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{
+                      fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase",
+                      letterSpacing: "0.12em",
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      background: "rgba(255,255,255,0.22)", padding: "4px 12px", borderRadius: 999, marginBottom: 6
+                    }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#FFF", animation: "pulse 1s infinite" }} />
+                      🔔 NEW ORDER REQUEST RECEIVED
+                    </div>
+                    <div style={{ fontFamily: "var(--font-display)", fontSize: "1.45rem", fontWeight: 800 }}>
+                      Order #{(activeDelivery.orderId || "").slice(-6).toUpperCase()}
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{
+                      background: "#FFF", color: TC,
+                      padding: "6px 14px", borderRadius: 999, fontSize: "0.95rem", fontWeight: 900,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+                    }}>
+                      ₹{activeDelivery.deliveryFee || "40"} Payout
+                    </div>
+                    <div style={{ fontSize: "0.75rem", opacity: 0.95, marginTop: 4, fontWeight: 600 }}>
+                      {remainingKm > 0 ? `${remainingKm.toFixed(1)} km route` : "Adalaj Area"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Uber-style auto-timeout progress bar */}
+                <div style={{
+                  background: "rgba(0,0,0,0.2)", borderRadius: 12, padding: "8px 12px",
+                  marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between",
+                  border: "1px dashed rgba(255,255,255,0.3)"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.82rem", fontWeight: 700, color: "#FFF" }}>
+                    <Clock size={15} style={{ animation: countdown <= 8 ? "pulse 0.6s infinite" : "none", color: countdown <= 8 ? "#FCA5A5" : "#FFF" }} />
+                    <span>Auto-pass to next rider in <b>{countdown}s</b></span>
+                  </div>
+                  <div style={{ width: 110, height: 7, background: "rgba(255,255,255,0.25)", borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{
+                      width: `${Math.max(0, (countdown / 25) * 100)}%`, height: "100%",
+                      background: countdown > 12 ? "#4ADE80" : countdown > 6 ? "#FBBF24" : "#EF4444",
+                      transition: "width 1s linear"
+                    }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Offer Body */}
+              <div style={{ padding: "20px" }}>
+                {/* Pickup from Restaurant */}
+                <div style={{
+                  background: CARD, borderRadius: 16, padding: "14px 16px",
+                  border: `1px solid ${INK_HAIR}`, marginBottom: 12
+                }}>
+                  <div style={{ fontSize: "0.68rem", fontWeight: 800, textTransform: "uppercase", color: TC, letterSpacing: "0.08em", marginBottom: 4 }}>
+                    🍽️ Pickup from Restaurant
+                  </div>
+                  <div style={{ fontSize: "1.05rem", fontWeight: 800, color: INK }}>
+                    {restaurantName}
+                  </div>
+                  <div style={{ fontSize: "0.82rem", color: INK_MUTED, marginTop: 2 }}>
+                    {restaurantAddress}
+                  </div>
+                </div>
+
+                {/* Dropoff to Customer */}
+                <div style={{
+                  background: isHostel ? "#FAF5FF" : "#F0FDF4",
+                  borderRadius: 16, padding: "14px 16px",
+                  border: `1.5px solid ${isHostel ? "#E9D5FF" : "#BBF7D0"}`, marginBottom: 16
+                }}>
+                  <div style={{ fontSize: "0.68rem", fontWeight: 800, textTransform: "uppercase", color: isHostel ? "#7E22CE" : "#15803D", letterSpacing: "0.08em", marginBottom: 4 }}>
+                    {isHostel ? "🏠 Hostel Student Drop-Off" : "🏠 Customer Drop-Off"}
+                  </div>
+                  <div style={{ fontSize: "1.05rem", fontWeight: 800, color: INK }}>
+                    {customerName}
+                  </div>
+                  <div style={{ fontSize: "0.84rem", color: INK, marginTop: 2, fontWeight: 500 }}>
+                    {customerAddress}
+                  </div>
+                </div>
+
+                {/* Actions: Accept or Decline */}
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button
+                    onClick={handleDecline}
+                    disabled={actionBusy}
+                    style={{
+                      flex: "0 0 38%", padding: "16px", borderRadius: 14,
+                      border: "2px solid #FCA5A5", background: "#FEF2F2",
+                      color: "#DC2626", fontWeight: 800, fontSize: "0.95rem",
+                      cursor: actionBusy ? "not-allowed" : "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                      opacity: actionBusy ? 0.6 : 1, transition: "all 0.2s"
+                    }}
+                  >
+                    <XCircle size={20} /> Decline
+                  </button>
+
+                  <button
+                    onClick={handleAccept}
+                    disabled={actionBusy}
+                    style={{
+                      flex: 1, padding: "16px", borderRadius: 14, border: "none",
+                      background: `linear-gradient(135deg, ${SUCCESS} 0%, #166534 100%)`,
+                      color: "#FFF", fontWeight: 900, fontSize: "1.05rem",
+                      cursor: actionBusy ? "not-allowed" : "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                      boxShadow: "0 6px 20px rgba(21,128,61,0.4)",
+                      opacity: actionBusy ? 0.6 : 1, transition: "all 0.2s"
+                    }}
+                  >
+                    {actionBusy ? (
+                      <Loader2 size={22} style={{ animation: "spin 1s linear infinite" }} />
+                    ) : (
+                      <><CheckCircle size={22} /> Accept Request</>
+                    )}
+                  </button>
+                </div>
+
+                <p style={{ textAlign: "center", fontSize: "0.74rem", color: INK_MUTED, marginTop: 12 }}>
+                  Declining will pass this request to the next available rider in the queue.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ margin: "16px 16px 0", animation: "slide-up 0.3s ease-out" }}>
+            {/* Main Delivery Box */}
+            <div style={{
+              background: "#FFF", borderRadius: 24, border: `1.5px solid ${TC}25`,
+              overflow: "hidden", boxShadow: `0 10px 30px ${TC}12`
+            }}>
             {/* Delivery Status Banner */}
             <div style={{
               background: isPickedUp
@@ -883,7 +1284,7 @@ export default function DriverHome() {
                   ) : isPickedUp ? (
                     <><CheckCircle size={22} /> Deliver Order to Customer</>
                   ) : (
-                    <><Package size={22} /> Accept & Pick Up Food from Restaurant</>
+                    <><Package size={22} /> Confirm Food Picked Up from Restaurant</>
                   )}
                 </button>
               </div>
@@ -896,7 +1297,7 @@ export default function DriverHome() {
             </div>
           </div>
         </div>
-      ) : (
+      )) : (
         /* ─── No Active Delivery State (Radar Search View) ─── */
         <div style={{ margin: "20px 16px 0" }}>
           <div style={{
@@ -938,6 +1339,145 @@ export default function DriverHome() {
             <StatCard label="Completed" value={driverProfile?.totalDeliveries || 0} emoji="📦" />
             <StatCard label="Rating" value={driverProfile?.avgRating ? `${driverProfile.avgRating} ★` : "5.0 ★"} emoji="⭐" color="#D97706" />
             <StatCard label="Earnings" value={`₹${(driverProfile?.totalDeliveries || 0) * 45}`} emoji="💰" color={SUCCESS} />
+          </div>
+        </div>
+      )}
+
+      {/* ─── Edit Profile Modal ─── */}
+      {showEditProfile && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16
+        }}>
+          <div style={{
+            background: "#FFF", borderRadius: 24, padding: "28px 24px",
+            maxWidth: 440, width: "100%", boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+            animation: "slide-up 0.25s ease-out"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div>
+                <h3 style={{ fontSize: "1.25rem", fontWeight: 800, color: INK, margin: 0 }}>
+                  ✏️ Edit Rider Profile
+                </h3>
+                <p style={{ fontSize: "0.78rem", color: INK_MUTED, margin: "4px 0 0" }}>
+                  Update your display name, phone, and vehicle
+                </p>
+              </div>
+              <button onClick={() => setShowEditProfile(false)} style={{
+                background: "none", border: "none", cursor: "pointer", color: INK_MUTED, padding: 4
+              }}>
+                <XCircle size={22} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProfile}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", color: INK_MUTED, marginBottom: 6 }}>
+                  Rider Full Name *
+                </label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  placeholder="e.g. Jenish / Dhruhit"
+                  style={{
+                    width: "100%", padding: "12px 14px", borderRadius: 12,
+                    background: FIELD, border: "1px solid rgba(0,0,0,0.06)",
+                    fontSize: "0.92rem", fontWeight: 600, color: INK, outline: "none", boxSizing: "border-box"
+                  }}
+                  required
+                />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", color: INK_MUTED, marginBottom: 6 }}>
+                  Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  value={editForm.phone}
+                  onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
+                  placeholder="e.g. +91 9876543210"
+                  style={{
+                    width: "100%", padding: "12px 14px", borderRadius: 12,
+                    background: FIELD, border: "1px solid rgba(0,0,0,0.06)",
+                    fontSize: "0.92rem", fontWeight: 600, color: INK, outline: "none", boxSizing: "border-box"
+                  }}
+                  required
+                />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", color: INK_MUTED, marginBottom: 6 }}>
+                  Vehicle Number *
+                </label>
+                <input
+                  type="text"
+                  value={editForm.vehicleNumber}
+                  onChange={e => setEditForm({ ...editForm, vehicleNumber: e.target.value.toUpperCase() })}
+                  placeholder="e.g. GJ01AB1234"
+                  style={{
+                    width: "100%", padding: "12px 14px", borderRadius: 12,
+                    background: FIELD, border: "1px solid rgba(0,0,0,0.06)",
+                    fontSize: "0.92rem", fontWeight: 700, letterSpacing: "0.05em", color: INK, outline: "none", boxSizing: "border-box"
+                  }}
+                  required
+                />
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", color: INK_MUTED, marginBottom: 8 }}>
+                  Vehicle Type
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[["MOTORCYCLE", "🏍 Moto"], ["SCOOTER", "🛵 Scooty"], ["BICYCLE", "🚲 Bike"], ["CAR", "🚗 Car"]].map(([type, lbl]) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setEditForm({ ...editForm, vehicleType: type })}
+                      style={{
+                        flex: 1, padding: "8px 2px", borderRadius: 10,
+                        border: editForm.vehicleType === type ? `2px solid ${TC}` : `1px solid ${INK_HAIR}`,
+                        background: editForm.vehicleType === type ? `${TC}10` : "#FFF",
+                        color: editForm.vehicleType === type ? TC : INK_MUTED,
+                        fontWeight: 700, fontSize: "0.75rem", cursor: "pointer"
+                      }}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowEditProfile(false)}
+                  style={{
+                    flex: "0 0 35%", padding: "13px", borderRadius: 12,
+                    border: `1px solid ${INK_HAIR}`, background: "#FFF",
+                    color: INK_MUTED, fontWeight: 700, fontSize: "0.9rem", cursor: "pointer"
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatingProfile}
+                  style={{
+                    flex: 1, padding: "13px", borderRadius: 12, border: "none",
+                    background: `linear-gradient(135deg, ${TC_SOFT}, ${TC})`,
+                    color: "#FFF", fontWeight: 800, fontSize: "0.95rem",
+                    cursor: updatingProfile ? "not-allowed" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    boxShadow: `0 4px 14px ${TC}35`
+                  }}
+                >
+                  {updatingProfile ? <Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} /> : "Save Changes"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1010,7 +1550,7 @@ function RegisterScreen({ user, onSuccess }) {
           Register as Driver
         </h2>
         <p style={{ fontSize: "0.9rem", color: INK_MUTED }}>
-          Fill in your details to start delivering on FoodRush
+          Fill in your details to start delivering on MealMate
         </p>
       </div>
 

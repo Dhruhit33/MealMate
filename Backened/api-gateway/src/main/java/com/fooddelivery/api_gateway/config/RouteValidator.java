@@ -17,8 +17,8 @@ public class RouteValidator {
             "/actuator",
             "/api/v1/restaurants/search",
             "/api/v1/restaurants/nearby",
-            "/api/v1/restaurants/top-rated"  // ← add this
-
+            "/api/v1/restaurants/top-rated",
+            "/api/v1/delivery/available-drivers"
     );
 
     public boolean isSecured(String path) {

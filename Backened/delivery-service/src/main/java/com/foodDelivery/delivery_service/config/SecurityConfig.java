@@ -26,6 +26,7 @@ public class SecurityConfig {
                         // WebSocket endpoint must be open for STOMP handshake
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/api/v1/delivery/available-drivers", "/api/v1/delivery/available-drivers/**").permitAll()
                         // Everything else requires authentication
                         .anyRequest().authenticated()
                 )

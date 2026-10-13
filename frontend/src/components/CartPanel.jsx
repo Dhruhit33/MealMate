@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight, Tag } from "lucide-react";
+import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight, Tag, MapPin } from "lucide-react";
 import { useCartStore } from "../store/cartStore";
+import { useAddressStore } from "../store/addressStore";
 
 const INK       = "#1C1208";
 const INK_SOFT  = "rgba(28,18,8,0.58)";
@@ -41,6 +42,10 @@ export default function CartPanel({ open, onClose }) {
   const clearCart = useCartStore((s) => s.clearCart);
   const fetchCart = useCartStore((s) => s.fetchCart);
   const [clearing, setClearing] = useState(false);
+
+  const addresses = useAddressStore((s) => s.addresses);
+  const selectedAddressId = useAddressStore((s) => s.selectedAddressId);
+  const activeAddress = addresses.find((a) => a.addressId === selectedAddressId) || addresses[0];
 
   useEffect(() => {
     if (open) {
@@ -124,6 +129,30 @@ export default function CartPanel({ open, onClose }) {
             <X size={15} style={{ color:INK_SOFT }} />
           </button>
         </div>
+
+        {/* Chosen delivery address */}
+        {activeAddress && (
+          <div style={{
+            margin: "10px 16px 0",
+            padding: "8px 12px",
+            borderRadius: 10,
+            background: FIELD,
+            border: `1px solid ${INK_HAIR}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            fontSize: "0.78rem", color: INK_SOFT,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
+              <MapPin size={13} color={TC} style={{ flexShrink: 0 }} />
+              <span style={{ fontWeight: 600, color: INK, whiteSpace: "nowrap" }}>Deliver to:</span>
+              <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                {activeAddress.city || activeAddress.street}
+              </span>
+            </div>
+            <button onClick={() => { onClose(); navigate("/addresses"); }} style={{
+              background: "none", border: "none", color: TC, fontWeight: 700, fontSize: "0.76rem", cursor: "pointer", flexShrink: 0
+            }}>Change</button>
+          </div>
+        )}
 
         {/* Delivery fee banner */}
         {items.length>0&&(

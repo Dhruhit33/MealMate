@@ -76,11 +76,21 @@ public class RestaurantService {
                 .toList();
     }
 
-    //search for the restaurant by keyword or cuisine
-    public List<RestaurantResponse> search(String keyword){
-        return restaurantRepository.searchByKeyword(keyword).stream()
+    // Search for restaurants with optional 25km radius filtering
+    public List<RestaurantResponse> search(String keyword, Double lat, Double lng, double radiusKm) {
+        String key = (keyword != null) ? keyword.trim() : "";
+        if (lat != null && lng != null) {
+            List<Object[]> result = restaurantRepository.searchNearbyRestaurants(lat, lng, radiusKm, key);
+            return mapQueryResultToResponses(result);
+        }
+        return restaurantRepository.searchByKeyword(key).stream()
                 .map(RestaurantResponse::fromEntity)
                 .toList();
+    }
+
+    // Backward compatible search overload
+    public List<RestaurantResponse> search(String keyword) {
+        return search(keyword, null, null, 25.0);
     }
 
     @Transactional
@@ -93,9 +103,8 @@ public class RestaurantService {
         return RestaurantResponse.fromEntity(restaurant);
     }
 
-    // nearBy rest
-
-    public  List<RestaurantResponse> findNearBy(double lat , double lng , double radiusKm , String cuisine) {
+    // Nearby restaurants within radiusKm
+    public List<RestaurantResponse> findNearBy(double lat, double lng, double radiusKm, String cuisine) {
         List<Object[]> result;
 
         if (cuisine != null && !cuisine.isBlank()) {
@@ -103,6 +112,26 @@ public class RestaurantService {
         } else {
             result = restaurantRepository.findNearbyRestaurants(lat, lng, radiusKm);
         }
+        return mapQueryResultToResponses(result);
+    }
+
+    // Top-rated restaurants with optional 25km radius filtering
+    public List<RestaurantResponse> getTopRated(Double lat, Double lng, double radiusKm) {
+        if (lat != null && lng != null) {
+            List<Object[]> result = restaurantRepository.findNearbyTopRated(lat, lng, radiusKm);
+            return mapQueryResultToResponses(result).stream().limit(20).toList();
+        }
+        return restaurantRepository.findTopRated().stream()
+                .limit(20)
+                .map(RestaurantResponse::fromEntity)
+                .toList();
+    }
+
+    public List<RestaurantResponse> getTopRated() {
+        return getTopRated(null, null, 25.0);
+    }
+
+    private List<RestaurantResponse> mapQueryResultToResponses(List<Object[]> result) {
         return result.stream().map(row -> {
             // Native query returns all columns + distance_km as last column
             Restaurant r = restaurantRepository.findById((String) row[0]).orElse(null);
@@ -115,17 +144,6 @@ public class RestaurantService {
             }
             return response;
         }).filter(Objects::nonNull).toList();
-
-
-    }
-
-
-    // top-rated
-    public  List<RestaurantResponse> getTopRated(){
-        return restaurantRepository.findTopRated().stream()
-                .limit(20)
-                .map(RestaurantResponse::fromEntity)
-                .toList();
     }
 
     //delete Restaurant

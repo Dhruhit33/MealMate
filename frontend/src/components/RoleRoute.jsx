@@ -11,7 +11,7 @@ export default function RoleRoute() {
   let effectiveUser = user;
   if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
     try {
-      const raw = window.localStorage.getItem("foodrush-auth");
+      const raw = window.localStorage.getItem("mealmate-auth") || window.localStorage.getItem("foodrush-auth");
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.state?.token) {

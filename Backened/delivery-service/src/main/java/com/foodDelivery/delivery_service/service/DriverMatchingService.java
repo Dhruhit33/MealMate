@@ -24,12 +24,11 @@ public class DriverMatchingService {
     private final DriverRepo driverRepository;
     private final DeliveryRepo deliveryRepo;
     private static final String DRIVER_LOCATIONS_KEY = "driver-locations";
-    @Value("${delivery.matching.radius-km:5.0}")
+    @Value("${delivery.matching.radius-km:25.0}")
     private double matchingRadiusKm;
-    @Value("${delivery.matching.max-drivers:10}")
+    @Value("${delivery.matching.max-drivers:15}")
     private int maxDrivers;
-    @Value("${delivery.matching.retry-radius-km:10.0}")
-    private double retryRadiusKm;
+
     //update driver location after 3 sec
     public void updateDriverLocation(String driverId, double latitude, double longitude) {
         redisTemplate.opsForGeo().add(
@@ -45,35 +44,29 @@ public class DriverMatchingService {
         redisTemplate.opsForGeo().remove(DRIVER_LOCATIONS_KEY, driverId);
         log.info("Removed driver location: driverId={}", driverId);
     }
+
     /**
-     * Find the nearest available driver to a restaurant.
+     * Find the nearest available driver within 25.0 km of the restaurant.
      * Uses Redis GEO RADIUS — O(log N) nearest-driver queries.
      * Algorithm:
-     * 1. Query Redis GEO for all drivers within radius of restaurant
+     * 1. Query Redis GEO for all drivers within 25 km of restaurant
      * 2. Sort by distance ascending
      * 3. Filter: must be ONLINE status (not already on delivery)
      * 4. Return first match
-     * 5. If no match, retry with wider radius
+     * 5. If no match in Redis, fallback to DB checking coordinates <= 25 km
      */
     public Optional<Driver> findNearestDriver(double restaurantLat, double restaurantLng) {
-        // First attempt: search within configured radius
+        // Query Redis GEO for drivers within 25.0 km
         Optional<Driver> driver = searchInRadius(restaurantLat, restaurantLng, matchingRadiusKm);
 
         if (driver.isPresent()) {
             return driver;
         }
 
-        // Second attempt: wider radius
-        log.info("No driver found within {}km, retrying with {}km radius", matchingRadiusKm, retryRadiusKm);
-        Optional<Driver> retryDriver = searchInRadius(restaurantLat, restaurantLng, retryRadiusKm);
-        
-        if (retryDriver.isPresent()) {
-            return retryDriver;
-        }
-        
-        // Third attempt: For testing environment, if no driver nearby, just assign ANY online driver
-        log.info("No driver within retry radius. Falling back to DB to find ANY online driver (testing mode)");
-        return fallbackToDatabase();
+        // Fallback: Check MySQL database strictly within 25.0 km radius
+        log.info("No driver found in Redis within {}km of ({}, {}). Checking database within {}km",
+                matchingRadiusKm, restaurantLat, restaurantLng, matchingRadiusKm);
+        return fallbackToDatabase(restaurantLat, restaurantLng, matchingRadiusKm);
     }
 
     private Optional<Driver> searchInRadius(double lat, double lng, double radiusKm) {
@@ -82,8 +75,8 @@ public class DriverMatchingService {
                     redisTemplate.opsForGeo().radius(
                             DRIVER_LOCATIONS_KEY,
                             new Circle(
-                                    new Point(lng, lat), // Redis GEO uses (lng, lat)
-                                    new Distance(radiusKm, Metrics.KILOMETERS)
+                                     new Point(lng, lat), // Redis GEO uses (lng, lat)
+                                     new Distance(radiusKm, Metrics.KILOMETERS)
                             ),
                             RedisGeoCommands.GeoRadiusCommandArgs.newGeoRadiusArgs()
                                     .sortAscending()
@@ -117,21 +110,47 @@ public class DriverMatchingService {
             return Optional.empty();
         } catch (Exception e) {
             log.error("Redis GEO query failed, falling back to DB query: {}", e.getMessage());
-            return fallbackToDatabase();
+            return fallbackToDatabase(lat, lng, radiusKm);
         }
     }
 
     /**
-     * Fallback: if Redis is down, find any available driver from MySQL with no active delivery.
-     * Degraded but functional (as per HLD failure scenario).
+     * Fallback: query MySQL database strictly within maxRadiusKm (25 km).
+     * Calculates Haversine distance from the restaurant and picks the closest available driver.
      */
-    private Optional<Driver> fallbackToDatabase() {
-        log.warn("Using database fallback for driver matching");
+    private Optional<Driver> fallbackToDatabase(double resLat, double resLng, double maxRadiusKm) {
+        log.warn("Using database query for driver matching near ({}, {}) within {}km", resLat, resLng, maxRadiusKm);
         return driverRepository.findAll()
                 .stream()
                 .filter(d -> d.getStatus() != DriverStatus.OFFLINE)
                 .filter(d -> deliveryRepo.findActiveDeliveryByDriverId(d.getDriverId()).isEmpty())
-                .findFirst();
+                .filter(d -> {
+                    if (d.getCurrentLatitude() == null || d.getCurrentLongitude() == null) {
+                        return false;
+                    }
+                    double dist = calculateHaversineKm(
+                            resLat, resLng,
+                            d.getCurrentLatitude().doubleValue(),
+                            d.getCurrentLongitude().doubleValue()
+                    );
+                    return dist <= maxRadiusKm;
+                })
+                .min(java.util.Comparator.comparingDouble(d -> calculateHaversineKm(
+                        resLat, resLng,
+                        d.getCurrentLatitude().doubleValue(),
+                        d.getCurrentLongitude().doubleValue()
+                )));
+    }
+
+    public static double calculateHaversineKm(double lat1, double lon1, double lat2, double lon2) {
+        double R = 6371.0; // Earth radius in km
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return Math.round(R * c * 100.0) / 100.0;
     }
 
     /**
@@ -149,6 +168,32 @@ public class DriverMatchingService {
             log.error("Failed to get driver location from Redis: {}", e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Find all online drivers in queue order (sorted by distance ascending from restaurant).
+     */
+    public java.util.List<Driver> findDriversInQueue(double restaurantLat, double restaurantLng, double radiusKm) {
+        return driverRepository.findAll()
+                .stream()
+                .filter(d -> d.getStatus() != DriverStatus.OFFLINE)
+                .filter(d -> {
+                    if (d.getCurrentLatitude() == null || d.getCurrentLongitude() == null) {
+                        return false;
+                    }
+                    double dist = calculateHaversineKm(
+                            restaurantLat, restaurantLng,
+                            d.getCurrentLatitude().doubleValue(),
+                            d.getCurrentLongitude().doubleValue()
+                    );
+                    return dist <= radiusKm;
+                })
+                .sorted(java.util.Comparator.comparingDouble(d -> calculateHaversineKm(
+                        restaurantLat, restaurantLng,
+                        d.getCurrentLatitude().doubleValue(),
+                        d.getCurrentLongitude().doubleValue()
+                )))
+                .toList();
     }
 }
 

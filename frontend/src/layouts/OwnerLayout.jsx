@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import { useOwnerStore } from "../store/ownerStore";
+import { MealMateIcon } from "../components/MealMateLogo";
 
 /* ── Light-theme palette (matching Customer / Driver) ── */
 const BG      = "#FEFCF8";
@@ -44,16 +45,12 @@ export default function OwnerLayout() {
       {/* Logo + collapse */}
       <div style={{ padding:"20px 16px", borderBottom:`1px solid ${BORDER}`,
         display:"flex", alignItems:"center", gap:10, minHeight:72 }}>
-        <div style={{ width:36, height:36, borderRadius:10, flexShrink:0,
-          background:`linear-gradient(135deg,${TC_SOFT},${TC})`,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontFamily:"var(--font-display)", fontSize:"1.2rem", fontWeight:700,
-          color:"#FFF5E6", fontStyle:"italic" }}>f</div>
+        <MealMateIcon size={36} />
         {(!collapsed || mobile) && (
           <div style={{ overflow:"hidden" }}>
-            <div style={{ fontFamily:"var(--font-display)", fontSize:"1.1rem", color:INK,
-              letterSpacing:"-0.01em", lineHeight:1 }}>
-              foodrush<span style={{ color:TC }}>.</span>
+            <div style={{ fontFamily:"var(--font-display)", fontSize:"1.15rem", color:INK,
+              letterSpacing:"-0.01em", lineHeight:1, fontWeight: 600 }}>
+              Meal<span style={{ color:TC, fontWeight: 700 }}>Mate</span><span style={{ color:TC }}>.</span>
             </div>
             <div style={{ fontSize:"0.62rem", color:MUTED, textTransform:"uppercase",
               letterSpacing:"0.12em", fontWeight:700, marginTop:2 }}>Owner Portal</div>

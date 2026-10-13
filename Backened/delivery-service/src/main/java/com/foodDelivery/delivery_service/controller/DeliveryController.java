@@ -26,6 +26,52 @@ public class DeliveryController {
         DeliveryResponse response = deliveryService.getDeliveryByOrderId(orderId);
         return ResponseEntity.ok(response);
     }
+
+    //get all registered/available drivers within radius (default 25km)
+    @GetMapping("/available-drivers")
+    public ResponseEntity<?> getAvailableDrivers(
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(defaultValue = "25.0") double radius) {
+        return ResponseEntity.ok(driverRepository.findAll().stream().map(d -> {
+            Double distanceKm = null;
+            if (lat != null && lng != null && d.getCurrentLatitude() != null && d.getCurrentLongitude() != null) {
+                distanceKm = com.foodDelivery.delivery_service.service.DriverMatchingService.calculateHaversineKm(
+                        lat, lng,
+                        d.getCurrentLatitude().doubleValue(),
+                        d.getCurrentLongitude().doubleValue());
+            }
+            java.util.Map<String, Object> map = new java.util.HashMap<>();
+            map.put("driverId", d.getDriverId() != null ? d.getDriverId() : "");
+            map.put("name", d.getName() != null ? d.getName() : "Rider");
+            map.put("phone", d.getPhone() != null ? d.getPhone() : "");
+            map.put("status", d.getStatus() != null ? d.getStatus().name() : "ONLINE");
+            map.put("vehicleType", d.getVehicleType() != null ? d.getVehicleType() : "MOTORCYCLE");
+            map.put("vehicleNumber", d.getVehicleNumber() != null ? d.getVehicleNumber() : "");
+            map.put("avgRating", d.getAvgRating() != null ? d.getAvgRating() : java.math.BigDecimal.valueOf(5.0));
+            map.put("totalDeliveries", d.getTotalDeliveries() != null ? d.getTotalDeliveries() : 0);
+            map.put("latitude", d.getCurrentLatitude());
+            map.put("longitude", d.getCurrentLongitude());
+            map.put("distanceKm", distanceKm);
+            return map;
+        })
+        .filter(d -> {
+            if (lat != null && lng != null) {
+                Double dist = (Double) d.get("distanceKm");
+                return dist != null && dist <= radius;
+            }
+            return true;
+        })
+        .sorted((a, b) -> {
+            Double da = (Double) a.get("distanceKm");
+            Double db = (Double) b.get("distanceKm");
+            if (da != null && db != null) {
+                return Double.compare(da, db);
+            }
+            return 0;
+        })
+        .toList());
+    }
     //get Delivery history for logged in customer
     @GetMapping("/my-deliveries")
     public  ResponseEntity<?> getMyDeliveries(@RequestHeader("Authorization") String authHeader){
@@ -80,6 +126,24 @@ public class DeliveryController {
         return ResponseEntity.ok(Map.of(
                 "count", deliveries.size(),
                 "deliveries", deliveries
+        ));
+    }
+
+    /**
+     * POST /delivery/accept
+     * Driver accepts delivery request.
+     */
+    @PostMapping("/accept")
+    public ResponseEntity<?> acceptDelivery(@RequestHeader("Authorization") String authHeader) {
+        String userId = extractUserId(authHeader);
+        String driverId = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new IllegalStateException("Driver profile not found"))
+                .getDriverId();
+
+        DeliveryResponse response = deliveryService.acceptDelivery(driverId);
+        return ResponseEntity.ok(Map.of(
+                "message", "Delivery request accepted! Navigate to restaurant.",
+                "delivery", response
         ));
     }
 

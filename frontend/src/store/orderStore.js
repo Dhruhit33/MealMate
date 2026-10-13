@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import api from "../api/axios";
+import { getAddressCoords } from "./addressStore";
 
 /**
  * Status normalization: backend Order uses CREATED/CONFIRMED/PICKED_UP
@@ -30,21 +31,28 @@ export const useOrderStore = create((set) => ({
   placeOrder: async (addressObj, userMeta = {}) => {
     let authUser = null;
     try {
-      const stored = localStorage.getItem("foodrush-auth");
+      const stored = localStorage.getItem("mealmate-auth") || localStorage.getItem("foodrush-auth");
       if (stored) {
         const parsed = JSON.parse(stored);
         authUser = parsed.state?.user;
       }
     } catch {}
 
-    // Include label prefix (e.g. [HOSTEL] or [HOME])
-    const labelPrefix = addressObj.label ? `[${addressObj.label}] ` : "";
-    const addressStr = labelPrefix + [
+    // Store clean formatted address without bracket prefix
+    const addressStr = [
       addressObj.street,
       addressObj.city,
       addressObj.state,
       addressObj.pincode,
     ].filter(Boolean).join(", ");
+
+    let lat = addressObj.latitude !== undefined && addressObj.latitude !== null ? Number(addressObj.latitude) : null;
+    let lng = addressObj.longitude !== undefined && addressObj.longitude !== null ? Number(addressObj.longitude) : null;
+    if (!lat || !lng || Math.abs(lat) < 0.001) {
+      const coords = getAddressCoords(addressObj);
+      lat = coords.lat;
+      lng = coords.lng;
+    }
 
     const payload = {
       deliveryAddressId: String(addressObj.addressId || ""),
@@ -52,8 +60,8 @@ export const useOrderStore = create((set) => ({
       customerPhone: userMeta.phone || authUser?.phone || addressObj.phone || "",
       customerName: userMeta.name || authUser?.name || addressObj.name || "Customer",
       specialInstructions: userMeta.instructions || "",
-      latitude: addressObj.latitude !== undefined && addressObj.latitude !== null ? Number(addressObj.latitude) : null,
-      longitude: addressObj.longitude !== undefined && addressObj.longitude !== null ? Number(addressObj.longitude) : null,
+      latitude: lat,
+      longitude: lng,
     };
     const res = await api.post("/orders/place", payload);
     return normalizeOrder(res.data);

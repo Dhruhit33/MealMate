@@ -2,6 +2,14 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import api from "../api/axios";
 
+if (typeof window !== "undefined" && window.localStorage) {
+  try {
+    if (!window.localStorage.getItem("mealmate-cart") && window.localStorage.getItem("foodrush-cart")) {
+      window.localStorage.setItem("mealmate-cart", window.localStorage.getItem("foodrush-cart"));
+    }
+  } catch (e) {}
+}
+
 export const useCartStore = create(
   persist(
     (set, get) => ({
@@ -208,7 +216,7 @@ export const useCartStore = create(
       },
     }),
     {
-      name: "foodrush-cart",
+      name: "mealmate-cart",
       partialize: (s) => ({
         items: s.items,
         restaurantId: s.restaurantId,

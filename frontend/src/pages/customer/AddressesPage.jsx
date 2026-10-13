@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Plus, Pencil, Trash2, X, Loader2, Home, Briefcase, Navigation, Sparkles, ArrowLeft } from "lucide-react";
+import { MapPin, Plus, Pencil, Trash2, X, Loader2, Home, Briefcase, Navigation, Sparkles, ArrowLeft, Check } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAddressStore } from "../../store/addressStore";
 import MapLocationPicker from "../../components/MapLocationPicker";
@@ -64,7 +64,7 @@ async function geocode(query) {
 
 export default function AddressesPage() {
   const navigate = useNavigate();
-  const { addresses, loading, fetchAddresses, addAddress, updateAddress, deleteAddress } = useAddressStore();
+  const { addresses, loading, fetchAddresses, addAddress, updateAddress, deleteAddress, selectedAddressId, selectAddress } = useAddressStore();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(empty);
@@ -266,38 +266,108 @@ export default function AddressesPage() {
           <p style={{ fontSize: "0.85rem", color: INK_SOFT }}>Add a delivery address to get started</p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {addresses.map((addr, i) => {
             const info = LABELS.find((l) => l.value === addr.label) || LABELS[2];
             const Icon = info.icon;
+            const isSelected = selectedAddressId === addr.addressId;
             return (
               <div key={addr.addressId || i} style={{
-                background: CARD, borderRadius: 14, border: `1px solid ${INK_HAIR}`,
-                padding: "18px 22px", display: "flex", alignItems: "flex-start", gap: 14,
+                background: isSelected ? `${TERRACOTTA}08` : CARD,
+                borderRadius: 16,
+                border: `2px solid ${isSelected ? TERRACOTTA : INK_HAIR}`,
+                padding: "20px 22px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
                 animation: `fade-up 0.3s ease-out ${i * 0.05}s both`,
+                boxShadow: isSelected ? `0 6px 20px ${TERRACOTTA}1E` : "0 2px 8px rgba(43,29,18,0.03)",
+                transition: "all 0.2s ease",
               }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10,
-                  background: `linear-gradient(135deg, ${TERRACOTTA}12, ${TERRACOTTA}06)`,
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}><Icon size={18} style={{ color: TERRACOTTA_DEEP }} /></div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: "0.95rem", color: INK, marginBottom: 4 }}>{info.label}</div>
-                  <p style={{ fontSize: "0.85rem", color: INK_SOFT, lineHeight: 1.5 }}>
-                    {[addr.street, addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}
-                  </p>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: 12,
+                    background: isSelected ? `${TERRACOTTA}20` : `linear-gradient(135deg, ${TERRACOTTA}12, ${TERRACOTTA}06)`,
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    border: isSelected ? `1px solid ${TERRACOTTA}40` : "none"
+                  }}><Icon size={19} style={{ color: TERRACOTTA_DEEP }} /></div>
+                  
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                      <span style={{ fontWeight: 700, fontSize: "0.98rem", color: INK }}>{info.label}</span>
+                      {isSelected ? (
+                        <span style={{
+                          background: TERRACOTTA, color: "#FFF5E6",
+                          fontSize: "0.72rem", fontWeight: 700,
+                          padding: "2px 10px", borderRadius: 999,
+                          display: "inline-flex", alignItems: "center", gap: 4
+                        }}>
+                          <Check size={11} /> Active Delivery Area (25 km active)
+                        </span>
+                      ) : null}
+                    </div>
+                    <p style={{ fontSize: "0.86rem", color: INK_SOFT, lineHeight: 1.5, margin: 0 }}>
+                      {[addr.street, addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => openEdit(addr)} title="Edit address" style={{
+                      width: 34, height: 34, borderRadius: 8, border: `1px solid ${INK_HAIR}`,
+                      background: "#FFF", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}><Pencil size={14} style={{ color: INK_SOFT }} /></button>
+                    <button onClick={() => handleDelete(addr.addressId)} title="Delete address" style={{
+                      width: 34, height: 34, borderRadius: 8, border: `1px solid ${INK_HAIR}`,
+                      background: "#FFF", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}><Trash2 size={14} style={{ color: NONVEG }} /></button>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 4 }}>
-                  <button onClick={() => openEdit(addr)} style={{
-                    width: 34, height: 34, borderRadius: 8, border: `1px solid ${INK_HAIR}`,
-                    background: "transparent", cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}><Pencil size={14} style={{ color: INK_SOFT }} /></button>
-                  <button onClick={() => handleDelete(addr.addressId)} style={{
-                    width: 34, height: 34, borderRadius: 8, border: `1px solid ${INK_HAIR}`,
-                    background: "transparent", cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}><Trash2 size={14} style={{ color: NONVEG }} /></button>
+
+                {/* Bottom action row: Choose this area / View hotels */}
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  flexWrap: "wrap", gap: 10, paddingTop: 10,
+                  borderTop: `1px solid ${isSelected ? TERRACOTTA + "25" : INK_HAIR}`
+                }}>
+                  <div style={{ fontSize: "0.78rem", color: INK_MUTED, display: "flex", alignItems: "center", gap: 5 }}>
+                    <MapPin size={12} color={isSelected ? TERRACOTTA : INK_MUTED} />
+                    <span>Area: <strong>{addr.city || addr.street || "Custom Location"}</strong> · Max 25 km radius</span>
+                  </div>
+
+                  {isSelected ? (
+                    <button
+                      onClick={() => navigate("/")}
+                      style={{
+                        padding: "6px 14px", borderRadius: 999,
+                        background: TERRACOTTA, color: "#FFF5E6",
+                        border: "none", fontSize: "0.8rem", fontWeight: 600,
+                        cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+                        boxShadow: `0 2px 8px ${TERRACOTTA}35`
+                      }}
+                    >
+                      Browse {addr.city ? `${addr.city} ` : ""}Hotels (25 km) →
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        selectAddress(addr);
+                        toast.success(`Active area set to ${addr.city || addr.street}! Showing hotels in 25 km.`);
+                      }}
+                      style={{
+                        padding: "6px 16px", borderRadius: 999,
+                        background: "#FFF", color: TERRACOTTA_DEEP,
+                        border: `1.5px solid ${TERRACOTTA}`,
+                        fontSize: "0.8rem", fontWeight: 700,
+                        cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+                        transition: "all 0.15s"
+                      }}
+                    >
+                      <MapPin size={12} color={TERRACOTTA} />
+                      Choose This Area (Show Hotels)
+                    </button>
+                  )}
                 </div>
               </div>
             );

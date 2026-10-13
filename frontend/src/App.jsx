@@ -4,6 +4,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import RoleRoute from "./components/RoleRoute";
 import SkeletonPage from "./components/SkeletonPage";
 
+import ErrorBoundary from "./components/ErrorBoundary";
+
 // ── Layouts (each role gets its own shell) ────────────────────────────────
 import CustomerLayout from "./layouts/CustomerLayout";
 import OwnerLayout    from "./layouts/OwnerLayout";
@@ -38,7 +40,8 @@ const DriverHistory  = lazy(() => import("./pages/driver/DriverHistory"));
 
 export default function App() {
   return (
-    <Suspense fallback={<SkeletonPage />}>
+    <ErrorBoundary>
+      <Suspense fallback={<SkeletonPage />}>
       <Routes>
         {/* ── Public ──────────────────────────────────────────────── */}
         <Route path="/login"      element={<LoginPage />} />
@@ -80,7 +83,7 @@ export default function App() {
 
         {/* ── Driver routes ─────────────────────────────────────────── */}
         <Route element={
-          <ProtectedRoute allowedRoles={["DRIVER", "DELIVERY_DRIVER", "DELIVERY_PARTNER"]}>
+          <ProtectedRoute allowedRoles={["DRIVER", "DELIVERY_DRIVER", "DELIVERY_PARTNER", "CUSTOMER", "ADMIN"]}>
             <DriverLayout />
           </ProtectedRoute>
         }>
@@ -92,5 +95,6 @@ export default function App() {
         <Route path="*" element={<RoleRoute />} />
       </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 }

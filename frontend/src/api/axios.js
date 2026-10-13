@@ -11,7 +11,7 @@ api.interceptors.request.use((config) => {
   let token = useAuthStore.getState().token;
   if (!token && typeof window !== "undefined" && window.localStorage) {
     try {
-      const raw = window.localStorage.getItem("foodrush-auth");
+      const raw = window.localStorage.getItem("mealmate-auth") || window.localStorage.getItem("foodrush-auth");
       if (raw) {
         const parsed = JSON.parse(raw);
         token = parsed?.state?.token;

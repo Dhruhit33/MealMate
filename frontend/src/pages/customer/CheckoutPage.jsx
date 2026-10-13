@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MapPin, Plus, CheckCircle, Loader2, ArrowLeft, ShoppingBag,
-  Navigation, CreditCard, Wallet, AlertTriangle,
+  Navigation, CreditCard, Wallet, AlertTriangle, Check,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useCartStore } from "../../store/cartStore";
@@ -118,11 +118,12 @@ export default function CheckoutPage() {
   const fetchCart = useCartStore((s) => s.fetchCart);
   const cartLoading = useCartStore((s) => s.loading);
 
-  const { addresses, fetchAddresses } = useAddressStore();
+  const { addresses, fetchAddresses, selectedAddressId, setSelectedAddressId, selectAddress } = useAddressStore();
   const { placeOrder } = useOrderStore();
   const { balance, lockedBalance, fetchBalance, lockFunds, releaseFunds } = useWalletStore();
 
   const [selectedAddress, setSelectedAddress] = useState(null);
+  const [showAllAddresses, setShowAllAddresses] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [orderId, setOrderId] = useState(null);
@@ -139,8 +140,15 @@ export default function CheckoutPage() {
   }, [fetchAddresses, fetchBalance, fetchCart]);
 
   useEffect(() => {
-    if (addresses.length > 0 && !selectedAddress) setSelectedAddress(addresses[0].addressId);
-  }, [addresses]);
+    if (addresses.length > 0) {
+      if (selectedAddressId && addresses.some((a) => a.addressId === selectedAddressId)) {
+        setSelectedAddress(selectedAddressId);
+      } else if (!selectedAddress) {
+        setSelectedAddress(addresses[0].addressId);
+        setSelectedAddressId(addresses[0].addressId);
+      }
+    }
+  }, [addresses, selectedAddressId]);
 
   const handlePlaceOrder = async () => {
     if (!selectedAddress) return toast.error("Please select a delivery address");
@@ -232,7 +240,49 @@ export default function CheckoutPage() {
       <div className="checkout-grid" style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 32, alignItems: "start" }}>
         {/* LEFT: Address */}
         <div>
-          <h2 style={{ fontSize: "1rem", fontWeight: 700, color: INK, marginBottom: 16 }}>Deliver to</h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <h2 style={{ fontSize: "1rem", fontWeight: 700, color: INK, margin: 0 }}>Deliver to</h2>
+              {addresses.length > 0 && !showAllAddresses && (
+                <span style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 600,
+                  background: "#E8F5E9",
+                  color: "#2E7D32",
+                  padding: "3px 8px",
+                  borderRadius: 999,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4
+                }}>
+                  <Check size={11} strokeWidth={2.5} /> Selected Address
+                </span>
+              )}
+            </div>
+            {addresses.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setShowAllAddresses((s) => !s)}
+                style={{
+                  padding: "5px 14px",
+                  borderRadius: 999,
+                  border: `1.5px solid ${TC}`,
+                  background: showAllAddresses ? `${TC}12` : "transparent",
+                  color: TC,
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  fontFamily: "var(--font-sans)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {showAllAddresses ? "Done" : "Change address"}
+              </button>
+            )}
+          </div>
 
           {addresses.length === 0 ? (
             <div style={{ background: CARD, borderRadius: 14, border: `1.5px dashed ${INK_HAIR}`,
@@ -247,17 +297,110 @@ export default function CheckoutPage() {
                 <Plus size={14} /> Add address
               </button>
             </div>
+          ) : !showAllAddresses ? (
+            /* ONLY SHOW SELECTED ADDRESS */
+            (() => {
+              const activeAddr = addresses.find((a) => a.addressId === selectedAddress) || addresses[0];
+              const labels = { HOME: "🏠 Home", WORK: "💼 Work", OTHER: "📍 Other" };
+              return (
+                <div style={{
+                  background: CARD,
+                  borderRadius: 16,
+                  border: `2px solid ${TC}`,
+                  padding: "18px 20px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 14,
+                  boxShadow: `0 4px 18px ${TC}14`,
+                  transition: "all 0.2s",
+                }}>
+                  <div style={{
+                    width: 22, height: 22, borderRadius: "50%",
+                    border: `2px solid ${TC}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0, marginTop: 2, background: TC,
+                  }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#FFF" }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: "0.95rem", color: INK }}>
+                          {labels[activeAddr?.label] || activeAddr?.label || "Delivery Address"}
+                        </span>
+                        <span style={{
+                          fontSize: "0.7rem",
+                          fontWeight: 600,
+                          background: `${TC}15`,
+                          color: TC,
+                          padding: "2px 8px",
+                          borderRadius: 999
+                        }}>
+                          Deliver here
+                        </span>
+                      </div>
+                      {addresses.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllAddresses(true)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: TC,
+                            fontSize: "0.82rem",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            padding: 0,
+                            textDecoration: "underline",
+                            fontFamily: "var(--font-sans)"
+                          }}
+                        >
+                          Change
+                        </button>
+                      )}
+                    </div>
+                    <p style={{ fontSize: "0.86rem", color: INK_SOFT, lineHeight: 1.5, margin: 0 }}>
+                      {[activeAddr?.street, activeAddr?.city, activeAddr?.state, activeAddr?.pincode].filter(Boolean).join(", ")}
+                    </p>
+                    {activeAddr?.city && (
+                      <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 5, fontSize: "0.75rem", color: INK_MUTED }}>
+                        <MapPin size={12} style={{ color: TC }} />
+                        <span>Area: <strong>{activeAddr.city}</strong></span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()
           ) : (
+            /* ADDRESS SELECTOR FOR CUSTOMER */
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{
+                fontSize: "0.82rem",
+                color: INK_SOFT,
+                marginBottom: 2,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between"
+              }}>
+                <span>Choose delivery address for this order:</span>
+                <span style={{ fontSize: "0.76rem", color: INK_MUTED }}>Click to select</span>
+              </div>
               {addresses.map((addr) => {
                 const selected = selectedAddress === addr.addressId;
                 const labels   = { HOME: "🏠 Home", WORK: "💼 Work", OTHER: "📍 Other" };
                 return (
-                  <div key={addr.addressId} onClick={() => setSelectedAddress(addr.addressId)} style={{
-                    background: selected ? `${TC}06` : CARD, borderRadius: 14,
+                  <div key={addr.addressId} onClick={() => {
+                    setSelectedAddress(addr.addressId);
+                    setSelectedAddressId(addr.addressId);
+                    selectAddress(addr);
+                    setShowAllAddresses(false);
+                  }} style={{
+                    background: selected ? `${TC}08` : CARD, borderRadius: 14,
                     border: `1.5px solid ${selected ? TC : INK_HAIR}`,
                     padding: "16px 20px", cursor: "pointer", transition: "all 0.2s",
-                    display: "flex", alignItems: "flex-start", gap: 14 }}>
+                    display: "flex", alignItems: "flex-start", gap: 14,
+                    boxShadow: selected ? `0 2px 10px ${TC}12` : "none" }}>
                     <div style={{ width: 20, height: 20, borderRadius: "50%",
                       border: `2px solid ${selected ? TC : INK_HAIR}`,
                       display: "flex", alignItems: "center", justifyContent: "center",
@@ -266,22 +409,36 @@ export default function CheckoutPage() {
                       {selected && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#FFF" }} />}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.9rem", color: INK, marginBottom: 4 }}>
-                        {labels[addr.label] || addr.label}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.9rem", color: INK }}>
+                          {labels[addr.label] || addr.label}
+                        </span>
+                        {selected && (
+                          <span style={{ fontSize: "0.72rem", color: TC, fontWeight: 600, background: `${TC}15`, padding: "2px 8px", borderRadius: 999 }}>
+                            Selected
+                          </span>
+                        )}
                       </div>
-                      <p style={{ fontSize: "0.84rem", color: INK_SOFT, lineHeight: 1.5 }}>
+                      <p style={{ fontSize: "0.84rem", color: INK_SOFT, lineHeight: 1.5, margin: 0 }}>
                         {[addr.street, addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}
                       </p>
                     </div>
                   </div>
                 );
               })}
-              <button onClick={() => navigate("/addresses")} style={{ padding: "12px", borderRadius: 12,
-                border: `1.5px dashed ${INK_HAIR}`, background: "transparent", color: INK_MUTED,
-                fontSize: "0.85rem", fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <Plus size={14} /> Add new address
-              </button>
+              <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                <button onClick={() => navigate("/addresses")} style={{ flex: 1, padding: "11px", borderRadius: 12,
+                  border: `1.5px dashed ${INK_HAIR}`, background: "transparent", color: INK_MUTED,
+                  fontSize: "0.84rem", fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Plus size={14} /> Add new address
+                </button>
+                <button onClick={() => setShowAllAddresses(false)} style={{ padding: "11px 18px", borderRadius: 12,
+                  border: `1px solid ${INK_HAIR}`, background: CARD, color: INK,
+                  fontSize: "0.84rem", fontWeight: 600, fontFamily: "var(--font-sans)", cursor: "pointer" }}>
+                  Done
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -107,7 +107,7 @@ public class Order {
             case CREATED    -> newStatus == OrderStatus.CONFIRMED || newStatus == OrderStatus.CANCELLED;
             case CONFIRMED  -> newStatus == OrderStatus.PREPARING || newStatus == OrderStatus.CANCELLED;
             case PREPARING  -> newStatus == OrderStatus.READY || newStatus == OrderStatus.CANCELLED;
-            case READY      -> newStatus == OrderStatus.PICKED_UP;
+            case READY      -> newStatus == OrderStatus.PICKED_UP || newStatus == OrderStatus.CANCELLED;
             case PICKED_UP  -> newStatus == OrderStatus.DELIVERED;
             case DELIVERED   -> newStatus == OrderStatus.COMPLETED;
             case COMPLETED, CANCELLED -> false; // Terminal states

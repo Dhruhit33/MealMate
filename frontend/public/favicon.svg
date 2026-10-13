@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" fill="none">
+  <defs>
+    <linearGradient id="mmBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF7A50"/>
+      <stop offset="55%" stop-color="#C0401E"/>
+      <stop offset="100%" stop-color="#8B2910"/>
+    </linearGradient>
+    <linearGradient id="mmShine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="44" height="44" rx="12.5" fill="url(#mmBgGrad)"/>
+  <rect x="2" y="2" width="44" height="22" rx="12.5" fill="url(#mmShine)"/>
+
+  <!-- Steaming aroma sparkle -->
+  <path d="M24 8.5C24 9.8 23.2 10.6 22.2 11.5C23.2 12.4 24 13.2 24 14.5C24 13.2 24.8 12.4 25.8 11.5C24.8 10.6 24 9.8 24 8.5Z" fill="#FFE5D0"/>
+
+  <!-- Dining dome cloche 'M' monogram -->
+  <path d="M12.5 32V21.5C12.5 17.5 15.2 14.8 19 14.8C21.4 14.8 23.2 16.2 24 18.2C24.8 16.2 26.6 14.8 29 14.8C32.8 14.8 35.5 17.5 35.5 21.5V32" stroke="#FFF5E6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Companion smile plate curve -->
+  <path d="M17.5 33.2C19.5 35.2 21.6 35.8 24 35.8C26.4 35.8 28.5 35.2 30.5 33.2" stroke="#FFD5BE" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

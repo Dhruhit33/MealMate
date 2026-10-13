@@ -4,6 +4,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store/authStore";
 import { normaliseRole } from "../api/roles";
+import MealMateLogo from "../components/MealMateLogo";
 
 const BG = "#FAF3E7";
 const BG_DEEP = "#F0E4CF";
@@ -41,7 +42,7 @@ export default function LoginPage() {
     let effectiveUser = user;
     if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
       try {
-        const raw = window.localStorage.getItem("foodrush-auth");
+        const raw = window.localStorage.getItem("mealmate-auth") || window.localStorage.getItem("foodrush-auth");
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed?.state?.token) {
@@ -120,16 +121,7 @@ export default function LoginPage() {
 
       {/* Logo */}
       <div style={{ position:"relative", zIndex:10, padding:"28px 48px", display:"flex", alignItems:"center" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:38, height:38, borderRadius:11,
-            background:`linear-gradient(135deg,${TERRACOTTA_SOFT},${TERRACOTTA} 60%,${TERRACOTTA_DEEP})`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontFamily:"var(--font-display)", fontSize:"1.35rem", fontWeight:700,
-            color:"#FFF5E6", fontStyle:"italic", boxShadow:`0 6px 20px ${TERRACOTTA}30` }}>f</div>
-          <span style={{ fontFamily:"var(--font-display)", fontSize:"1.45rem", letterSpacing:"-0.01em", color:INK }}>
-            foodrush<span style={{ color:TERRACOTTA }}>.</span>
-          </span>
-        </div>
+        <MealMateLogo to="/" size={38} />
       </div>
 
       {/* Main grid */}
@@ -332,7 +324,7 @@ export default function LoginPage() {
 
             <div style={{ marginTop:24, paddingTop:22, borderTop:`1px solid ${INK_HAIR}`,
               textAlign:"center", fontSize:"0.85rem", color:INK_SOFT }}>
-              New to FoodRush?{" "}
+              New to MealMate?{" "}
               <Link to="/register" style={{ color:TERRACOTTA, textDecoration:"none", fontWeight:600,
                 borderBottom:`1px dashed ${TERRACOTTA}60`, paddingBottom:1 }}>
                 Start here

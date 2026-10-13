@@ -9,7 +9,13 @@ const getStoredAuth = () => {
     return { token: null, user: null };
   }
   try {
-    const raw = window.localStorage.getItem("foodrush-auth");
+    let raw = window.localStorage.getItem("mealmate-auth");
+    if (!raw) {
+      raw = window.localStorage.getItem("foodrush-auth");
+      if (raw) {
+        try { window.localStorage.setItem("mealmate-auth", raw); } catch (e) {}
+      }
+    }
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.state && parsed.state.token) {
@@ -91,6 +97,7 @@ export const useAuthStore = create(
         set({ token: null, user: null });
         try {
           if (typeof window !== "undefined" && window.localStorage) {
+            window.localStorage.removeItem("mealmate-auth");
             window.localStorage.removeItem("foodrush-auth");
           }
         } catch (e) {}
@@ -100,7 +107,7 @@ export const useAuthStore = create(
       },
     }),
     {
-      name: "foodrush-auth",
+      name: "mealmate-auth",
       partialize: (state) => ({ token: state.token, user: state.user }),
     }
   )

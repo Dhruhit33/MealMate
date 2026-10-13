@@ -22,5 +22,15 @@ Thumbs.db
 # Java crash dumps
 *.hprof
 
+# ─── Terraform ──────────────────────────────
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.tfplan.binary
+tfplan
+.terraform/
+.terraform.lock.hcl
+*.pem
 
-
+# ─── Local Tool Binaries ────────────────────
+bin/

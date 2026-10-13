@@ -21,8 +21,8 @@ export default function VerifyOtpPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token, user, verifyOtp } = useAuthStore();
-  const email = location.state?.email || sessionStorage.getItem("foodrush_pending_email") || "";
-  const initialOtp = location.state?.otp || sessionStorage.getItem("foodrush_pending_otp") || "";
+  const email = location.state?.email || sessionStorage.getItem("mealmate_pending_email") || sessionStorage.getItem("foodrush_pending_email") || "";
+  const initialOtp = location.state?.otp || sessionStorage.getItem("mealmate_pending_otp") || sessionStorage.getItem("foodrush_pending_otp") || "";
   const [displayOtp, setDisplayOtp] = useState(initialOtp);
   const [otp, setOtp] = useState(initialOtp ? initialOtp.split("").slice(0, 6) : ["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
@@ -36,7 +36,7 @@ export default function VerifyOtpPage() {
     let effectiveUser = user;
     if (!effectiveToken && typeof window !== "undefined" && window.localStorage) {
       try {
-        const raw = window.localStorage.getItem("foodrush-auth");
+        const raw = window.localStorage.getItem("mealmate-auth") || window.localStorage.getItem("foodrush-auth");
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed?.state?.token) {
@@ -102,9 +102,11 @@ export default function VerifyOtpPage() {
     setLoading(true);
     try {
       const verifiedUser = await verifyOtp(email, code);
+      sessionStorage.removeItem("mealmate_pending_email");
+      sessionStorage.removeItem("mealmate_pending_otp");
       sessionStorage.removeItem("foodrush_pending_email");
       sessionStorage.removeItem("foodrush_pending_otp");
-      toast.success("Email verified! Welcome to FoodRush!");
+      toast.success("Email verified! Welcome to MealMate!");
       
       const role = normaliseRole(verifiedUser.role);
       if (role === "DRIVER") navigate("/driver", { replace: true });
@@ -126,7 +128,7 @@ export default function VerifyOtpPage() {
       if (newCode) {
         setDisplayOtp(newCode);
         setOtp(newCode.split(""));
-        sessionStorage.setItem("foodrush_pending_otp", newCode);
+        sessionStorage.setItem("mealmate_pending_otp", newCode);
       }
       toast.success(res.data?.message || "New OTP generated!");
       setCooldown(60);

@@ -104,7 +104,23 @@ public class DriverController {
     public ResponseEntity<?> getProfile(@RequestHeader("Authorization") String authHeader) {
         String userId = extractUserId(authHeader);
         DriverResponse response = deliveryService.getDriverProfile(userId);
+        if (response == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                    .body(Map.of("message", "Driver profile not found. Please register."));
+        }
         return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/profile")
+    public ResponseEntity<?> updateProfile(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestBody DriverRegistrationRequest request) {
+        String userId = extractUserId(authHeader);
+        DriverResponse response = deliveryService.updateDriverProfile(userId, request);
+        return ResponseEntity.ok(Map.of(
+                "message", "Driver profile updated successfully",
+                "driver", response
+        ));
     }
 
 

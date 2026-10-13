@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Star, Clock, TrendingUp, Flame, ChefHat, Zap, Sparkles, MapPin, Navigation, Compass, AlertCircle, RefreshCw } from "lucide-react";
+import { Star, Clock, TrendingUp, Flame, ChefHat, Zap, Sparkles, MapPin, Navigation, Compass, AlertCircle, RefreshCw, Bike, ShieldCheck } from "lucide-react";
 import { useRestaurantStore } from "../../store/restaurantStore";
 import { useAuthStore } from "../../store/authStore";
+import { useAddressStore, getAddressCoords } from "../../store/addressStore";
 
 const INK        = "#1C1208";
 const INK_SOFT   = "rgba(28,18,8,0.58)";
@@ -61,7 +62,8 @@ const paletteFor = (name="") => {
 export default function HomePage() {
   const navigate  = useNavigate();
   const user      = useAuthStore(s=>s.user);
-  const { topRated, nearby, loading, fetchTopRated, fetchNearby } = useRestaurantStore();
+  const { topRated, nearby, loading, availableDrivers, fetchTopRated, fetchNearby, fetchAvailableDrivers, setLocation } = useRestaurantStore();
+  const { addresses, selectedAddressId, selectAddress, fetchAddresses } = useAddressStore();
   const [cuisine, setCuisine]     = useState("All");
   const [promptIdx, setPromptIdx] = useState(0);
 
@@ -69,10 +71,27 @@ export default function HomePage() {
   const [gpsNotice, setGpsNotice] = useState("");
   const [locLoading, setLocLoading] = useState(false);
 
-  // Load immediately upon mount: Adalaj Annapurnadham hub (23.1644, 72.5855, 25km radius)
+  // Initialize location: if user has chosen/saved addresses, use active address; else fallback to Adalaj hub
   useEffect(() => {
-    fetchTopRated();
-    fetchNearby(activeLoc.lat, activeLoc.lng, 25);
+    fetchAddresses().then((addrs) => {
+      const savedId = localStorage.getItem("mealmate_selected_address_id");
+      const chosen = (addrs || []).find(a => a.addressId === savedId) || (addrs && addrs.length > 0 ? addrs[0] : null);
+      if (chosen) {
+        const coords = getAddressCoords(chosen);
+        const name = chosen.city ? `${chosen.label ? chosen.label + ": " : ""}${chosen.city}` : (chosen.street || chosen.label);
+        const locObj = { name, lat: coords.lat, lng: coords.lng, tag: chosen.city || "Address", addressId: chosen.addressId };
+        setActiveLoc(locObj);
+        setLocation(name, coords.lat, coords.lng, 25, chosen.addressId);
+        fetchTopRated(coords.lat, coords.lng, 25);
+        fetchNearby(coords.lat, coords.lng, 25);
+        fetchAvailableDrivers(coords.lat, coords.lng, 25);
+      } else {
+        setLocation(activeLoc.name, activeLoc.lat, activeLoc.lng, 25, null);
+        fetchTopRated(activeLoc.lat, activeLoc.lng, 25);
+        fetchNearby(activeLoc.lat, activeLoc.lng, 25);
+        fetchAvailableDrivers(activeLoc.lat, activeLoc.lng, 25);
+      }
+    });
   }, []);
 
   // Rotate catchy prompt every 3.2s
@@ -81,16 +100,38 @@ export default function HomePage() {
     return ()=>clearInterval(t);
   },[]);
 
+  // Switch to user's chosen address (e.g., Ahmedabad, Surat, Rajkot)
+  const handleSelectUserAddress = useCallback(async (addr) => {
+    const coords = getAddressCoords(addr);
+    const name = addr.city ? `${addr.label ? addr.label + ": " : ""}${addr.city}` : (addr.street || addr.label);
+    const locObj = { name, lat: coords.lat, lng: coords.lng, tag: addr.city || "Address", addressId: addr.addressId };
+    setActiveLoc(locObj);
+    setGpsNotice("");
+    setLocLoading(true);
+    selectAddress(addr);
+    await Promise.all([
+      fetchNearby(coords.lat, coords.lng, 25),
+      fetchTopRated(coords.lat, coords.lng, 25),
+    ]);
+    fetchAvailableDrivers(coords.lat, coords.lng, 25);
+    setLocLoading(false);
+  }, [selectAddress, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
+
   // Switch to selected preset location
   const handleSelectLocation = useCallback(async (loc) => {
     setActiveLoc(loc);
     setGpsNotice("");
     setLocLoading(true);
-    await fetchNearby(loc.lat, loc.lng, 25);
+    setLocation(loc.name, loc.lat, loc.lng, 25, null);
+    await Promise.all([
+      fetchNearby(loc.lat, loc.lng, 25),
+      fetchTopRated(loc.lat, loc.lng, 25),
+    ]);
+    fetchAvailableDrivers(loc.lat, loc.lng, 25);
     setLocLoading(false);
-  }, [fetchNearby]);
+  }, [setLocation, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
 
-  // Request browser GPS
+  // Request browser GPS (max 25 km radius)
   const handleUseGps = useCallback(() => {
     if (!navigator.geolocation) {
       setGpsNotice("Geolocation is not supported by your browser. Using Annapurnadham, Adalaj.");
@@ -102,14 +143,22 @@ export default function HomePage() {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         const results = await fetchNearby(lat, lng, 25);
+        fetchTopRated(lat, lng, 25);
+        fetchAvailableDrivers(lat, lng, 25);
         if (results && results.length > 0) {
-          setActiveLoc({ name: `My GPS (${lat.toFixed(3)}, ${lng.toFixed(3)})`, lat, lng, tag: "GPS" });
+          const locObj = { name: `My GPS (${lat.toFixed(3)}, ${lng.toFixed(3)})`, lat, lng, tag: "GPS" };
+          setActiveLoc(locObj);
+          setLocation(locObj.name, lat, lng, 25, null);
           setGpsNotice("");
         } else {
           // If browser ISP is outside Gujarat delivery area, gently notify and fallback to Adalaj
-          setGpsNotice(`Your detected GPS (${lat.toFixed(2)}, ${lng.toFixed(2)}) is outside Gujarat delivery hub. Displaying all restaurants within 25 km of Annapurnadham, Adalaj.`);
-          await fetchNearby(23.1644, 72.5855, 25);
+          setGpsNotice(`Your detected GPS (${lat.toFixed(2)}, ${lng.toFixed(2)}) has no registered restaurants within 25 km. Displaying restaurants near Annapurnadham, Adalaj.`);
+          await Promise.all([
+            fetchNearby(23.1644, 72.5855, 25),
+            fetchTopRated(23.1644, 72.5855, 25),
+          ]);
           setActiveLoc(PRESET_LOCATIONS[0]);
+          setLocation(PRESET_LOCATIONS[0].name, 23.1644, 72.5855, 25, null);
         }
         setLocLoading(false);
       },
@@ -117,20 +166,30 @@ export default function HomePage() {
         setLocLoading(false);
         setGpsNotice("Could not access GPS. Displaying restaurants near Annapurnadham, Adalaj.");
         fetchNearby(23.1644, 72.5855, 25);
+        fetchTopRated(23.1644, 72.5855, 25);
+        fetchAvailableDrivers(23.1644, 72.5855, 25);
       },
       { timeout: 7000 }
     );
-  }, [fetchNearby]);
+  }, [setLocation, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
 
-  // Merge nearby restaurants with topRated; nearby has precedence because of accurate distanceKm
+  // Strictly enforce 25km radius: only restaurants located within 25 km of activeLoc
   const all = useMemo(() => {
-    if (nearby && nearby.length > 0) {
-      return nearby;
-    }
-    return topRated;
+    const map = new Map();
+    (nearby || []).forEach(r => {
+      if (r && r.restaurantId && (r.distanceKm == null || r.distanceKm <= 25)) {
+        map.set(r.restaurantId, r);
+      }
+    });
+    (topRated || []).forEach(r => {
+      if (r && r.restaurantId && !map.has(r.restaurantId) && (r.distanceKm == null || r.distanceKm <= 25)) {
+        map.set(r.restaurantId, r);
+      }
+    });
+    return Array.from(map.values());
   }, [nearby, topRated]);
 
-  const featured = topRated[0] || nearby[0];
+  const featured = nearby[0] || all[0];
 
   const filtered = useMemo(() => {
     if (cuisine === "All") return all;
@@ -299,11 +358,43 @@ export default function HomePage() {
             </button>
           </div>
 
-          {/* Quick preset chips */}
+          {/* Quick preset chips & User Saved Addresses */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", paddingTop: 10, borderTop: `1px solid ${INK_HAIR}` }}>
             <span style={{ fontSize: "0.72rem", color: INK_MUTED, fontWeight: 600 }}>Quick areas:</span>
+
+            {/* User's saved addresses (Ahmedabad, Surat, Rajkot, etc.) */}
+            {addresses.map((addr) => {
+              const isSelected = activeLoc.addressId === addr.addressId || (selectedAddressId === addr.addressId && (!activeLoc.addressId || activeLoc.addressId === addr.addressId));
+              const title = addr.city || addr.street || addr.label || "Saved Address";
+              return (
+                <button
+                  key={addr.addressId}
+                  onClick={() => handleSelectUserAddress(addr)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 999,
+                    border: `1.5px solid ${isSelected ? TC : INK_HAIR}`,
+                    background: isSelected ? `${TC}14` : "#FFF",
+                    color: isSelected ? TC_DEEP : INK_SOFT,
+                    fontSize: "0.78rem",
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    boxShadow: isSelected ? `0 2px 8px ${TC}20` : "none"
+                  }}
+                >
+                  <MapPin size={11} color={isSelected ? TC : INK_MUTED} />
+                  <span>{addr.label ? `${addr.label}: ` : ""}{title}</span>
+                </button>
+              );
+            })}
+
+            {/* Preset locations */}
             {PRESET_LOCATIONS.map((loc) => {
-              const isSelected = activeLoc.name === loc.name;
+              const isSelected = !activeLoc.addressId && activeLoc.name === loc.name;
               return (
                 <button
                   key={loc.name}
@@ -328,6 +419,27 @@ export default function HomePage() {
                 </button>
               );
             })}
+
+            {/* Manage addresses link */}
+            <button
+              onClick={() => navigate("/addresses")}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 999,
+                border: `1px dashed ${INK_HAIR}`,
+                background: "transparent",
+                color: TC,
+                fontSize: "0.76rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                gap: 4
+              }}
+            >
+              <span>+ Manage Addresses</span>
+            </button>
           </div>
 
           {/* GPS notice if outside range */}
@@ -394,8 +506,11 @@ export default function HomePage() {
       {/* ── OFFERS STRIP ── */}
       <OffersStrip />
 
+      {/* ── LIVE REGISTERED FLEET (DATABASE RIDERS) ── */}
+      <ActiveRidersFleet drivers={availableDrivers} />
+
       {/* ── POPULAR GRID (25km RANGE) ── */}
-      <section style={{ marginTop:52 }}>
+      <section style={{ marginTop:44 }}>
         <div style={{ marginBottom:24, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
           <div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -475,6 +590,105 @@ function OffersStrip() {
         </div>
       ))}
     </div>
+  );
+}
+
+/* ── Registered Fleet / Active Riders ── */
+function ActiveRidersFleet({ drivers = [] }) {
+  if (!drivers || drivers.length === 0) return null;
+  return (
+    <section style={{ marginTop: 36, animation: "fade-up 0.5s ease-out both" }}>
+      <div style={{
+        background: CARD,
+        border: `1.5px solid ${INK_HAIR}`,
+        borderRadius: 22,
+        padding: "20px 24px",
+        boxShadow: "0 2px 14px rgba(28,18,8,0.04)"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: `${PISTACHIO}18`, color: PISTACHIO,
+              display: "flex", alignItems: "center", justifyContent: "center"
+            }}>
+              <Bike size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: "0.68rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>
+                Live Delivery Fleet
+              </div>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontWeight: 500, color: INK, margin: 0 }}>
+                Available Delivery Partners
+              </h3>
+            </div>
+          </div>
+          <span style={{
+            fontSize: "0.72rem", fontWeight: 700, padding: "4px 12px", borderRadius: 999,
+            background: `${PISTACHIO}16`, color: PISTACHIO, letterSpacing: "0.04em",
+            display: "inline-flex", alignItems: "center", gap: 6
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: PISTACHIO, animation: "pulse-dot 2s infinite" }} />
+            {drivers.length} Rider{drivers.length !== 1 ? "s" : ""} Available within 25 km
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {drivers.map((d) => (
+            <div key={d.driverId || d.userId} style={{
+              background: "#FFF",
+              border: `1px solid ${INK_HAIR}`,
+              borderRadius: 16,
+              padding: "14px 16px",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              boxShadow: "0 1px 4px rgba(28,18,8,0.03)"
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: `linear-gradient(135deg, ${TC}14, ${SAFFRON}20)`,
+                color: TC_DEEP,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontWeight: 700, fontSize: "1.1rem", fontFamily: "var(--font-display)"
+              }}>
+                {d.name ? d.name.charAt(0).toUpperCase() : "R"}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontWeight: 700, fontSize: "0.92rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {d.name}
+                  </span>
+                  <ShieldCheck size={14} color={PISTACHIO} />
+                </div>
+                <div style={{ fontSize: "0.74rem", color: INK_SOFT, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>{d.vehicleType || "BIKE"}</span>
+                  <span>•</span>
+                  {d.distanceKm != null ? (
+                    <span style={{ color: TC_DEEP, fontWeight: 700 }}>{Number(d.distanceKm).toFixed(1)} km away</span>
+                  ) : (
+                    <span>{d.phone || "Verified"}</span>
+                  )}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <span style={{
+                  fontSize: "0.66rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                  background: d.status === "OFFLINE" ? "rgba(0,0,0,0.06)" : `${PISTACHIO}18`,
+                  color: d.status === "OFFLINE" ? INK_MUTED : PISTACHIO,
+                  textTransform: "uppercase"
+                }}>
+                  {d.status || "ONLINE"}
+                </span>
+                <div style={{ fontSize: "0.68rem", color: CURRY, fontWeight: 700, marginTop: 3 }}>
+                  ★ {d.avgRating > 0 ? Number(d.avgRating).toFixed(1) : "5.0"}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

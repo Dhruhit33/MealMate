@@ -644,7 +644,7 @@ function DriverRegistrationView({ onSuccess }) {
     try {
       await registerDriver(form);
       await onSuccess();
-      toast.success("Welcome to the FoodRush driver family! 🎉");
+      toast.success("Welcome to the MealMate driver family! 🎉");
     } catch (err) {
       toast.error(err?.response?.data?.message || "Registration failed. Try again.");
     }
