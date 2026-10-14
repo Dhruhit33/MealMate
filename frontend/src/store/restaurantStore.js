@@ -65,7 +65,8 @@ export const useRestaurantStore = create((set, get) => ({
           r.distanceKm = calculateDistanceKm(targetLat, targetLng, r.latitude, r.longitude);
         }
         return r;
-      }).filter(r => r.distanceKm == null || r.distanceKm <= radius);
+      }).filter(r => r.distanceKm != null && r.distanceKm <= radius);
+
       set({ topRated: list, loading: false });
       return list;
     } catch {
@@ -74,7 +75,7 @@ export const useRestaurantStore = create((set, get) => ({
     }
   },
 
-  // Fetch restaurants within 25km radius
+  // Fetch restaurants strictly within 25km radius
   fetchNearby: async (lat, lng, radius = 25) => {
     try {
       const loc = get().currentLocation;
@@ -86,7 +87,8 @@ export const useRestaurantStore = create((set, get) => ({
           r.distanceKm = calculateDistanceKm(targetLat, targetLng, r.latitude, r.longitude);
         }
         return r;
-      }).filter(r => r.distanceKm == null || r.distanceKm <= radius);
+      }).filter(r => r.distanceKm != null && r.distanceKm <= radius);
+
       set({ nearby: list });
       return list;
     } catch {

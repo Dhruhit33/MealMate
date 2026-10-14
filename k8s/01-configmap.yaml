@@ -10,6 +10,9 @@ data:
   CONFIG_SERVER_URL: "http://config-server:8888"
   SPRING_CLOUD_CONFIG_URI: "http://config-server:8888"
   SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
+  SPRING_CLOUD_CONFIG_FAIL_FAST: "true"
+  SPRING_CLOUD_CONFIG_RETRY_MAX_ATTEMPTS: "20"
+  SPRING_CLOUD_CONFIG_RETRY_INITIAL_INTERVAL: "2000"
   EUREKA_URL: "http://discovery-server:8761/eureka/"
   EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: "http://discovery-server:8761/eureka/"
 

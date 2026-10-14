@@ -173,23 +173,24 @@ export default function HomePage() {
     );
   }, [setLocation, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
 
-  // Strictly enforce 25km radius: only restaurants located within 25 km of activeLoc
+  // Strictly enforce 25km radius: ONLY show restaurants within 25 km of user's active location
   const all = useMemo(() => {
     const map = new Map();
     (nearby || []).forEach(r => {
-      if (r && r.restaurantId && (r.distanceKm == null || r.distanceKm <= 25)) {
+      if (r && r.restaurantId && r.distanceKm != null && r.distanceKm <= 25) {
         map.set(r.restaurantId, r);
       }
     });
     (topRated || []).forEach(r => {
-      if (r && r.restaurantId && !map.has(r.restaurantId) && (r.distanceKm == null || r.distanceKm <= 25)) {
+      if (r && r.restaurantId && !map.has(r.restaurantId) && r.distanceKm != null && r.distanceKm <= 25) {
         map.set(r.restaurantId, r);
       }
     });
     return Array.from(map.values());
   }, [nearby, topRated]);
 
-  const featured = nearby[0] || all[0];
+  // Featured is strictly within 25 km
+  const featured = all.find(r => r && r.distanceKm != null && r.distanceKm <= 25);
 
   const filtered = useMemo(() => {
     if (cuisine === "All") return all;
@@ -496,8 +497,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── FEATURED ── */}
-      {featured && (
+      {/* ── FEATURED (STRICTLY WITHIN 25 KM) ── */}
+      {featured && featured.distanceKm != null && featured.distanceKm <= 25 && (
         <section style={{ marginBottom:52 }}>
           <FeaturedCard restaurant={featured} onClick={()=>navigate(`/restaurants/${featured.restaurantId}`)} />
         </section>
@@ -532,7 +533,7 @@ export default function HomePage() {
         </div>
 
         {loading&&filtered.length===0 ? <GridSkeleton /> :
-         filtered.length===0           ? <EmptyState cuisine={cuisine} locationName={activeLoc.name} /> : (
+         filtered.length===0           ? <EmptyState cuisine={cuisine} locationName={activeLoc.name} onSwitchLocation={handleSelectLocation} /> : (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:24 }}>
             {filtered.map((r,i)=>(
               <RestaurantCard key={r.restaurantId} restaurant={r} index={i}
@@ -963,17 +964,40 @@ function GridSkeleton() {
   );
 }
 
-function EmptyState({ cuisine, locationName }) {
+function EmptyState({ cuisine, locationName, onSwitchLocation }) {
   return (
-    <div style={{ padding:"72px 24px", textAlign:"center",
+    <div style={{ padding:"64px 24px", textAlign:"center",
       background:CARD, borderRadius:20, border:`1.5px dashed ${INK_HAIR}` }}>
-      <ChefHat size={40} style={{ color:INK_MUTED, margin:"0 auto 16px", display:"block" }} />
-      <h3 style={{ fontSize:"1.05rem", fontWeight:600, marginBottom:6, color:INK }}>
+      <ChefHat size={44} style={{ color:TC, margin:"0 auto 16px", display:"block" }} />
+      <h3 style={{ fontSize:"1.2rem", fontWeight:700, marginBottom:8, color:INK, fontFamily:"var(--font-display)" }}>
         No {cuisine==="All"?"restaurants":`${cuisine} spots`} within 25 km of {locationName}
       </h3>
-      <p style={{ fontSize:"0.88rem", color:INK_SOFT, maxWidth:380, margin:"0 auto" }}>
-        Try selecting a nearby area like Annapurnadham or Adalaj from the location bar above.
+      <p style={{ fontSize:"0.9rem", color:INK_SOFT, maxWidth:440, margin:"0 auto 20px", lineHeight:1.5 }}>
+        MealMate delivers strictly within a <strong>25 km radius</strong> of our registered kitchens. You can switch to one of our active restaurant hubs:
       </p>
+      {onSwitchLocation && (
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap" }}>
+          <button
+            onClick={() => onSwitchLocation({ name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, tag: "Adalaj" })}
+            style={{
+              background: TC, color: "#fff", border: "none", borderRadius: 999,
+              padding: "10px 22px", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer",
+              boxShadow: "0 4px 14px rgba(192,64,30,0.25)"
+            }}
+          >
+            📍 Adalaj Hub (Mc Donals · 2.8 km)
+          </button>
+          <button
+            onClick={() => onSwitchLocation({ name: "HOME: Majura Taluka", lat: 21.11697090, lng: 72.78540090, tag: "Surat" })}
+            style={{
+              background: CARD, color: TC_DEEP, border: `1.5px solid ${TC}40`, borderRadius: 999,
+              padding: "10px 22px", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer"
+            }}
+          >
+            📍 Surat Hub (The leela · 7.8 km)
+          </button>
+        </div>
+      )}
     </div>
   );
 }
