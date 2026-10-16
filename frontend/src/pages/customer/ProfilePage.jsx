@@ -236,11 +236,9 @@ export default function ProfilePage() {
       </div>
 
       {/* Quick Stats Grid */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
-        gap: 16, marginBottom: 28,
-      }}>
+      <div className="profile-stats-grid">
         <div
+          className="profile-stat-card"
           onClick={() => navigate("/orders")}
           style={{
             background: CARD, border: `1px solid ${INK_HAIR}`,
@@ -260,15 +258,16 @@ export default function ProfilePage() {
             </div>
             <ArrowUpRight size={15} style={{ color: INK_MUTED }} />
           </div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 600, color: INK }}>
+          <div className="profile-stat-value" style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 600, color: INK }}>
             {orders.length}
           </div>
-          <div style={{ fontSize: "0.78rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginTop: 2 }}>
+          <div className="profile-stat-label" style={{ fontSize: "0.78rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginTop: 2 }}>
             Total Orders
           </div>
         </div>
 
         <div
+          className="profile-stat-card"
           onClick={() => navigate("/wallet")}
           style={{
             background: CARD, border: `1px solid ${INK_HAIR}`,
@@ -288,15 +287,16 @@ export default function ProfilePage() {
             </div>
             <ArrowUpRight size={15} style={{ color: INK_MUTED }} />
           </div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 600, color: INK }}>
+          <div className="profile-stat-value" style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 600, color: INK }}>
             ₹{balance !== null ? Number(balance).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "0"}
           </div>
-          <div style={{ fontSize: "0.78rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginTop: 2 }}>
+          <div className="profile-stat-label" style={{ fontSize: "0.78rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginTop: 2 }}>
             Wallet Balance
           </div>
         </div>
 
         <div
+          className="profile-stat-card"
           onClick={() => navigate("/addresses")}
           style={{
             background: CARD, border: `1px solid ${INK_HAIR}`,
@@ -316,10 +316,10 @@ export default function ProfilePage() {
             </div>
             <ArrowUpRight size={15} style={{ color: INK_MUTED }} />
           </div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 600, color: INK }}>
+          <div className="profile-stat-value" style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 600, color: INK }}>
             {addresses.length}
           </div>
-          <div style={{ fontSize: "0.78rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginTop: 2 }}>
+          <div className="profile-stat-label" style={{ fontSize: "0.78rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginTop: 2 }}>
             Saved Addresses
           </div>
         </div>
@@ -344,9 +344,9 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="profile-details-grid">
           {/* Full Name */}
-          <div style={{
+          <div className="profile-field-card" style={{
             background: FIELD, borderRadius: 14, padding: "14px 18px",
             border: `1.5px solid ${editing ? TERRACOTTA_SOFT : "transparent"}`,
           }}>
@@ -364,14 +364,14 @@ export default function ProfilePage() {
                 }}
               />
             ) : (
-              <div style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
+              <div className="profile-field-value" style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
                 {user?.name || "—"}
               </div>
             )}
           </div>
 
           {/* Phone */}
-          <div style={{
+          <div className="profile-field-card" style={{
             background: FIELD, borderRadius: 14, padding: "14px 18px",
             border: `1.5px solid ${editing ? TERRACOTTA_SOFT : "transparent"}`,
           }}>
@@ -389,28 +389,28 @@ export default function ProfilePage() {
                 }}
               />
             ) : (
-              <div style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
+              <div className="profile-field-value" style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
                 {user?.phone || "—"}
               </div>
             )}
           </div>
 
           {/* Email */}
-          <div style={{ background: FIELD, borderRadius: 14, padding: "14px 18px" }}>
+          <div className="profile-field-card" style={{ background: FIELD, borderRadius: 14, padding: "14px 18px" }}>
             <div style={{ fontSize: "0.72rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 4 }}>
               Email Address
             </div>
-            <div style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
+            <div className="profile-field-value" style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
               {user?.email || "—"}
             </div>
           </div>
 
           {/* Role */}
-          <div style={{ background: FIELD, borderRadius: 14, padding: "14px 18px" }}>
+          <div className="profile-field-card" style={{ background: FIELD, borderRadius: 14, padding: "14px 18px" }}>
             <div style={{ fontSize: "0.72rem", color: INK_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 4 }}>
               Account Type
             </div>
-            <div style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
+            <div className="profile-field-value" style={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
               {badge.label}
             </div>
           </div>

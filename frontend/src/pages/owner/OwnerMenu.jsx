@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Plus, Edit2, Trash2, Eye, EyeOff, Loader2, ChefHat, X, PlusCircle } from "lucide-react";
 import { useOwnerStore } from "../../store/ownerStore";
@@ -30,6 +31,29 @@ export default function OwnerMenu() {
   const rid = currentRestaurant?.restaurantId;
 
   useEffect(() => { if (rid) fetchMenu(rid); }, [rid]);
+
+  if (!currentRestaurant) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px", maxWidth: 480, margin: "40px auto", color: INK }}>
+        <div style={{ fontSize: "4rem", marginBottom: 16 }}>🍽️</div>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", fontWeight: 600, color: INK, marginBottom: 10 }}>
+          No Restaurant Registered Yet
+        </h2>
+        <p style={{ fontSize: "0.9rem", color: INK_MUTED, lineHeight: 1.6, marginBottom: 28 }}>
+          You need to register your restaurant profile before you can manage categories and add menu items.
+        </p>
+        <Link to="/owner/settings" style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "13px 28px", borderRadius: 12,
+          background: `linear-gradient(135deg, ${TC_SOFT}, ${TC})`, color: "#FFF5E6",
+          fontWeight: 700, fontSize: "0.95rem", textDecoration: "none",
+          boxShadow: `0 4px 16px ${TC}35`
+        }}>
+          Register Your Restaurant
+        </Link>
+      </div>
+    );
+  }
 
   const filtered = filterCat === "all" ? menuItems
     : menuItems.filter(i => i.categoryId === filterCat || i.category?.categoryId === filterCat);
@@ -211,9 +235,13 @@ export default function OwnerMenu() {
           item={editItem} categories={categories} rid={rid}
           onClose={() => { setShowItemModal(false); setEditItem(null); }}
           onSave={async (data) => {
-            if (editItem) { await updateMenuItem(rid, editItem.itemId, data); toast.success("Item updated!"); }
-            else { await addMenuItem(rid, data); toast.success("Item added!"); }
-            setShowItemModal(false); setEditItem(null);
+            try {
+              if (editItem) { await updateMenuItem(rid, editItem.itemId, data); toast.success("Item updated!"); }
+              else { await addMenuItem(rid, data); toast.success("Item added!"); }
+              setShowItemModal(false); setEditItem(null);
+            } catch (err) {
+              toast.error(err?.response?.data?.message || err?.response?.data || "Failed to save menu item");
+            }
           }}
         />
       )}
@@ -221,7 +249,13 @@ export default function OwnerMenu() {
       {/* Category Modal */}
       {showCatModal && (
         <CatModal rid={rid} onClose={() => setShowCatModal(false)}
-          onSave={async (data) => { await addCategory(rid, data); toast.success("Category added!"); setShowCatModal(false); }} />
+          onSave={async (data) => {
+            try {
+              await addCategory(rid, data); toast.success("Category added!"); setShowCatModal(false);
+            } catch (err) {
+              toast.error(err?.response?.data?.message || err?.response?.data || "Failed to add category");
+            }
+          }} />
       )}
 
       <style>{`

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useDriverStore } from "../../store/driverStore";
 import { useAuthStore } from "../../store/authStore";
+import { detectCurrentLocation } from "../../store/addressStore";
 import socketService from "../../services/socketService";
 import api from "../../api/axios";
 
@@ -187,12 +188,12 @@ export default function DriverHome() {
     driverProfile, activeDelivery, isOnline, currentLocation,
     fetchProfile, goOnline, goOffline,
     startLocationTracking, stopLocationTracking,
-    fetchActiveDelivery, acceptDelivery, confirmPickup, declineDelivery, completeDelivery, registerDriver, updateProfile,
+    fetchActiveDelivery, acceptDelivery, confirmPickup, declineDelivery, completeDelivery, registerDriver, updateProfile, updateLocation,
   } = useDriverStore();
 
   const [toggling, setToggling] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [mapCenter, setMapCenter] = useState([23.1644, 72.5909]); // Adalaj / Balapir default
+  const [mapCenter, setMapCenter] = useState([23.1644, 72.5909]);
   const [orderDetails, setOrderDetails] = useState(null);
   const [copiedAddr, setCopiedAddr] = useState(false);
   const [copiedRestAddr, setCopiedRestAddr] = useState(false);
@@ -213,19 +214,63 @@ export default function DriverHome() {
   });
   const [updatingProfile, setUpdatingProfile] = useState(false);
   const [countdown, setCountdown] = useState(25);
+  const [detectingGps, setDetectingGps] = useState(false);
+
+  // Real rider coordinates: strictly populated when live GPS / location is active in current session
+  const locPos = (() => {
+    if (currentLocation?.latitude && currentLocation?.longitude) {
+      const lat = parseFloat(currentLocation.latitude);
+      const lng = parseFloat(currentLocation.longitude);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return [lat, lng];
+      }
+    }
+    return null;
+  })();
+
+  // Explicit handler to detect user's REAL live GPS / IP location and update state
+  const handleEnableGps = async () => {
+    setDetectingGps(true);
+    try {
+      const loc = await detectCurrentLocation();
+      if (loc && loc.lat && loc.lng) {
+        await updateLocation(loc.lat, loc.lng);
+        setMapCenter([loc.lat, loc.lng]);
+        toast.success(`Live Location detected (${loc.city || "Current Position"})! 📍`);
+        setDetectingGps(false);
+        return;
+      }
+    } catch (e) {
+      console.warn("handleEnableGps error:", e);
+    }
+    setDetectingGps(false);
+    toast.error("Please turn on device GPS or allow location permission in your browser.", { duration: 5000 });
+  };
 
   const locTimer = useRef(null);
   const prevDeliveryId = useRef(null);
   const routeTargetKey = useRef("");
 
-  // Fetch profile + active delivery on mount
+  // Fetch profile + active delivery on mount & attempt gentle GPS detection
   useEffect(() => {
-    fetchProfile().then((p) => {
-      if (p?.currentLatitude && p?.currentLongitude) {
-        setMapCenter([parseFloat(p.currentLatitude), parseFloat(p.currentLongitude)]);
-      }
-    }).catch(() => { });
+    fetchProfile().catch(() => { });
     fetchActiveDelivery().catch(() => { });
+
+    // Attempt gentle HTML5 GPS detection if permission is already allowed
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (pos?.coords?.latitude && pos?.coords?.longitude) {
+            updateLocation(pos.coords.latitude, pos.coords.longitude);
+            setMapCenter([pos.coords.latitude, pos.coords.longitude]);
+          }
+        },
+        () => {
+          // GPS is off or permission not granted: keep locPos null and show GPS Inactive warning
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
+      );
+    }
   }, []);
 
   // Poll for active delivery every 3s when online
@@ -350,22 +395,35 @@ export default function DriverHome() {
         clearInterval(locTimer.current);
         toast.success("You're offline. Rest well! 😴");
       } else {
-        const pos = await new Promise(res =>
-          navigator.geolocation.getCurrentPosition(
-            res,
-            () => res({ coords: { latitude: 23.1644, longitude: 72.5855 } }),
-            { timeout: 8000 }
-          )
-        );
-        await goOnline(pos.coords.latitude, pos.coords.longitude);
-        setMapCenter([pos.coords.latitude, pos.coords.longitude]);
+        // Ensure real GPS/IP location is detected before going online
+        let lat = locPos?.[0] || currentLocation?.latitude;
+        let lng = locPos?.[1] || currentLocation?.longitude;
+
+        if (!lat || !lng) {
+          const loc = await detectCurrentLocation();
+          if (loc && loc.lat && loc.lng) {
+            lat = loc.lat;
+            lng = loc.lng;
+            await updateLocation(lat, lng);
+            setMapCenter([lat, lng]);
+          }
+        }
+
+        if (!lat || !lng) {
+          toast.error("⚠️ GPS Location Required: Please turn on device GPS or allow location access in your browser to go online.", { duration: 6000 });
+          setToggling(false);
+          return;
+        }
+
+        await goOnline(lat, lng);
+        setMapCenter([lat, lng]);
         toast.success("You're online! Ready for deliveries 🚀");
       }
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to update status");
     }
     setToggling(false);
-  }, [isOnline, toggling]);
+  }, [isOnline, toggling, locPos, currentLocation]);
 
   const handlePickup = async () => {
     const rName = activeDelivery?.restaurantName || "the restaurant";
@@ -450,11 +508,8 @@ export default function DriverHome() {
     setTimeout(() => setCopiedRestAddr(false), 2000);
   };
 
-  // Base coordinates localized to Adalaj / Gandhinagar
-  const AHM_DEFAULT = [23.1644, 72.5909];
-  const locPos = currentLocation ? [currentLocation.latitude, currentLocation.longitude] : null;
-  const anchorLat = locPos ? locPos[0] : AHM_DEFAULT[0];
-  const anchorLng = locPos ? locPos[1] : AHM_DEFAULT[1];
+  const anchorLat = locPos ? locPos[0] : (mapCenter ? mapCenter[0] : 23.1644);
+  const anchorLng = locPos ? locPos[1] : (mapCenter ? mapCenter[1] : 72.5855);
 
   // Helper to reject outdated Bhopal coordinates
   const isBhopal = (lat, lng) => lat && lng && Math.abs(lat - 23.2599) < 0.2 && Math.abs(lng - 77.4126) < 0.2;
@@ -668,6 +723,42 @@ export default function DriverHome() {
         </button>
       </div>
 
+      {/* GPS Off / Not Allowed Warning Card */}
+      {!locPos && (
+        <div style={{
+          margin: "14px 16px 0", padding: "12px 16px", borderRadius: 14,
+          background: "#FEF2F2", border: "1.5px solid #F87171",
+          boxShadow: "0 2px 10px rgba(220,38,38,0.08)",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          flexWrap: "wrap"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: "1.3rem" }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: "0.85rem", color: "#991B1B" }}>
+                GPS Location is OFF or Not Allowed
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "#B91C1C", marginTop: 2 }}>
+                Please turn on your device GPS / Location to show your current location and receive orders.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleEnableGps}
+            disabled={detectingGps}
+            style={{
+              background: "#DC2626", color: "#FFF", border: "none", borderRadius: 8,
+              padding: "7px 14px", fontWeight: 700, fontSize: "0.76rem", cursor: "pointer",
+              whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6,
+              boxShadow: "0 2px 6px rgba(220,38,38,0.25)"
+            }}
+          >
+            {detectingGps ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Navigation size={13} />}
+            {detectingGps ? "Detecting GPS..." : "Turn On GPS"}
+          </button>
+        </div>
+      )}
+
       {/* ─── Zomato-Style Live Map (Hero Placement at Top) ─── */}
       <div style={{
         margin: "14px 16px 0", borderRadius: 20, overflow: "hidden",
@@ -832,6 +923,47 @@ export default function DriverHome() {
               <span style={{ fontSize: "0.62rem", fontWeight: 700, background: "rgba(234,179,8,0.25)", color: "#FBBF24", padding: "2px 6px", borderRadius: 6 }}>
                 🟡 Avoid Jam
               </span>
+            </button>
+          </div>
+        )}
+
+        {/* Live GPS Inactive Overlay on Map */}
+        {!locPos && (
+          <div style={{
+            position: "absolute", bottom: 12, left: 12, right: 12, zIndex: 1000,
+            background: "rgba(255, 255, 255, 0.96)", backdropFilter: "blur(8px)",
+            borderRadius: 14, padding: "10px 14px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+            border: "1.5px solid #FCA5A5",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%", background: "#FEE2E2",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0
+              }}>
+                <MapPin size={18} color="#DC2626" />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: "0.82rem", color: "#991B1B" }}>
+                  GPS Location Inactive
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "#6B7280", marginTop: 1 }}>
+                  Turn on device GPS to track your real rider location on map
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleEnableGps}
+              disabled={detectingGps}
+              style={{
+                background: "#C0401E", color: "#FFF", border: "none", borderRadius: 8,
+                padding: "7px 13px", fontWeight: 700, fontSize: "0.76rem", cursor: "pointer",
+                whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5
+              }}
+            >
+              {detectingGps ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <Navigation size={12} />}
+              {detectingGps ? "Detecting..." : "Turn On GPS"}
             </button>
           </div>
         )}

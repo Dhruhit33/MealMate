@@ -18,7 +18,11 @@ export default function DriverLayout() {
   const { isOnline } = useDriverStore();
   const navigate = useNavigate();
 
-  const handleLogout = () => { logout(); navigate("/login"); };
+  const handleLogout = () => {
+    try { useDriverStore.getState().clearProfile(); } catch {}
+    logout();
+    navigate("/login");
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column",

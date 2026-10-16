@@ -26,11 +26,8 @@ const pinIcon = L.divIcon({
 
 // Gujarat key cities & localities quick chips
 const POPULAR_LOCATIONS = [
-  { name: "Balapir (Adalaj)", lat: 23.1645, lng: 72.5811 },
-  { name: "Adalaj (Annapurnadham)", lat: 23.1644, lng: 72.5855 },
-  { name: "Gandhinagar", lat: 23.2156, lng: 72.6369 },
   { name: "Ahmedabad", lat: 23.0225, lng: 72.5714 },
-  { name: "Surat", lat: 21.1702, lng: 72.8311 },
+  { name: "Gandhinagar", lat: 23.2156, lng: 72.6369 },
   { name: "Vadodara", lat: 22.3072, lng: 73.1812 },
   { name: "Rajkot", lat: 22.3039, lng: 70.8022 },
 ];
@@ -546,32 +543,72 @@ export default function MapLocationPicker({
     await fetchAddress(lat, lng);
   };
 
-  // Use current GPS location
-  const handleUseCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error("Geolocation is not supported by your browser");
+  // Trigger user's REAL device GPS coordinates (NO fake Ahmedabad IP fallback)
+  const handleUseCurrentLocation = async () => {
+    setDetecting(true);
+
+    const applyLocation = async (lat, lng) => {
+      const newPos = [lat, lng];
+      setPosition(newPos);
+      setMapCenter(newPos);
+      setMapZoom(16);
+      setIsConfirmed(false);
+      setDetecting(false);
+      toast.success("✓ Your original location detected! Tap 'Confirm Location' to lock it.");
+      await fetchAddress(lat, lng);
+    };
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setDetecting(false);
+      toast.error("Geolocation is not supported by your browser. Please search your place name below or click on the map.");
       return;
     }
-    setDetecting(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setPosition([lat, lng]);
-        setMapCenter([lat, lng]);
-        setMapZoom(16);
-        setIsConfirmed(false);
-        setDetecting(false);
-        toast.success("GPS location detected! Please tap 'Confirm Location' to lock it.");
-        await fetchAddress(lat, lng);
-      },
-      (err) => {
-        setDetecting(false);
-        console.warn("Geolocation error:", err);
-        toast.error("Could not get GPS location. Please choose city or click on the map.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+
+    const getHtml5Pos = (highAccuracy, timeoutMs) =>
+      new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: highAccuracy,
+          timeout: timeoutMs,
+          maximumAge: 0,
+        });
+      });
+
+    try {
+      // 1. High accuracy GPS (satellites + Wi-Fi) with 15s timeout
+      let pos;
+      try {
+        pos = await getHtml5Pos(true, 15000);
+      } catch (err) {
+        // If high accuracy timed out or failed, try standard accuracy
+        if (err?.code === 1) {
+          // Permission denied / insecure origin: rethrow immediately
+          throw err;
+        }
+        pos = await getHtml5Pos(false, 10000);
+      }
+
+      if (pos && pos.coords) {
+        const { latitude, longitude } = pos.coords;
+        if (!isNaN(latitude) && !isNaN(longitude)) {
+          await applyLocation(latitude, longitude);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("GPS detection failed:", err);
+      setDetecting(false);
+      if (err?.code === 1) {
+        toast.error("⚠️ Location access was blocked. Please click the icon in your browser address bar and set Location to 'Allow'.", { duration: 7000 });
+      } else if (err?.code === 2 || err?.code === 3) {
+        toast.error("⚠️ Device GPS timed out or unavailable. Please enable device Location in settings, or type your locality in the search bar below.", { duration: 7000 });
+      } else {
+        toast.error("Could not get your GPS location. Please turn on device GPS or search your place name below.", { duration: 6000 });
+      }
+      return;
+    }
+
+    setDetecting(false);
+    toast.error("Could not determine your GPS location. Please search your place name below or click on the map.");
   };
 
   // Autocomplete search input change: instant curated match + online Photon geocoding

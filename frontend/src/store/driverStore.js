@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import api from "../api/axios";
+import { detectCurrentLocation } from "./addressStore";
 
 // Backend DriverStatus enum: OFFLINE, ONLINE, ASSIGNED, PICKED_UP, DELIVERING
 // Backend DeliveryStatus enum: PENDING, DRIVER_ASSIGNED, PICKED_UP, IN_TRANSIT, DELIVERED, CANCELLED, FAILED
@@ -24,12 +25,18 @@ export const useDriverStore = create(
       isOnline: false,
       currentLocation: null,
       locationWatchId: null,
+      locationIntervalId: null,
       loading: false,
 
       clearProfile: () => {
         set({ driverProfile: null, isOnline: false, activeDelivery: null, deliveryHistory: [] });
         const watchId = get().locationWatchId;
-        if (watchId) navigator.geolocation.clearWatch(watchId);
+        if (watchId && typeof navigator !== "undefined" && navigator.geolocation) {
+          navigator.geolocation.clearWatch(watchId);
+        }
+        const intervalId = get().locationIntervalId;
+        if (intervalId) clearInterval(intervalId);
+        set({ locationWatchId: null, locationIntervalId: null });
       },
 
       fetchProfile: async () => {
@@ -123,28 +130,58 @@ export const useDriverStore = create(
       },
 
       startLocationTracking: () => {
-        if (!navigator.geolocation) return;
-        // Clear existing watch before creating new one
-        const existingId = get().locationWatchId;
-        if (existingId) navigator.geolocation.clearWatch(existingId);
+        const triggerFallback = async () => {
+          try {
+            const loc = await detectCurrentLocation();
+            if (loc && loc.lat && loc.lng) {
+              get().updateLocation(loc.lat, loc.lng);
+            }
+          } catch (e) {}
+        };
 
-        const watchId = navigator.geolocation.watchPosition(
-          (pos) => {
-            const { latitude, longitude } = pos.coords;
-            get().updateLocation(latitude, longitude);
-          },
-          () => {},
-          { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
-        );
-        set({ locationWatchId: watchId });
+        // Clear existing watch and interval before creating new ones
+        const existingWatchId = get().locationWatchId;
+        if (existingWatchId && typeof navigator !== "undefined" && navigator.geolocation) {
+          navigator.geolocation.clearWatch(existingWatchId);
+        }
+        const existingInterval = get().locationIntervalId;
+        if (existingInterval) clearInterval(existingInterval);
+
+        // Immediate position fetch fallback
+        triggerFallback();
+
+        let watchId = null;
+        if (typeof navigator !== "undefined" && navigator.geolocation) {
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+              const { latitude, longitude } = pos.coords;
+              get().updateLocation(latitude, longitude);
+            },
+            (err) => {
+              console.warn("Geolocation watchPosition failed, using fallback:", err?.message);
+              triggerFallback();
+            },
+            { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+          );
+        }
+
+        // Periodic tracking interval (every 10s while driver is online)
+        const intervalId = setInterval(() => {
+          if (!get().isOnline) return;
+          triggerFallback();
+        }, 10000);
+
+        set({ locationWatchId: watchId, locationIntervalId: intervalId });
       },
 
       stopLocationTracking: () => {
         const watchId = get().locationWatchId;
-        if (watchId) {
+        if (watchId && typeof navigator !== "undefined" && navigator.geolocation) {
           navigator.geolocation.clearWatch(watchId);
-          set({ locationWatchId: null });
         }
+        const intervalId = get().locationIntervalId;
+        if (intervalId) clearInterval(intervalId);
+        set({ locationWatchId: null, locationIntervalId: null });
       },
 
       // Fetch active delivery for the logged-in driver
@@ -212,3 +249,11 @@ export const useDriverStore = create(
     }
   )
 );
+
+if (typeof window !== "undefined") {
+  window.__mealmate_clear_driver = () => {
+    try {
+      useDriverStore.getState().clearProfile();
+    } catch {}
+  };
+}

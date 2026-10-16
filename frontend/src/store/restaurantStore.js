@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import api from "../api/axios";
 
 export const calculateDistanceKm = (lat1, lon1, lat2, lon2) => {
@@ -16,86 +17,90 @@ export const calculateDistanceKm = (lat1, lon1, lat2, lon2) => {
   return Math.round(R * c * 100) / 100;
 };
 
-export const useRestaurantStore = create((set, get) => ({
-  topRated: [],
-  nearby: [],
-  searchResults: [],
-  current: null,
-  categories: [],
-  menuItems: [],
-  reviews: [],
-  availableDrivers: [],
-  loading: false,
-  menuLoading: false,
+export const useRestaurantStore = create(
+  persist(
+    (set, get) => ({
+      topRated: [],
+      nearby: [],
+      searchResults: [],
+      current: null,
+      categories: [],
+      menuItems: [],
+      reviews: [],
+      availableDrivers: [],
+      loading: false,
+      menuLoading: false,
 
-  fetchAvailableDrivers: async (lat, lng, radius = 25) => {
-    try {
-      const loc = get().currentLocation;
-      const targetLat = lat ?? loc?.lat ?? 23.1644;
-      const targetLng = lng ?? loc?.lng ?? 72.5855;
-      const res = await api.get("/delivery/available-drivers", {
-        params: { lat: targetLat, lng: targetLng, radius }
-      });
-      const list = Array.isArray(res.data) ? res.data : [];
-      set({ availableDrivers: list });
-      return list;
-    } catch {
-      set({ availableDrivers: [] });
-      return [];
-    }
-  },
-
-  currentLocation: { name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, radius: 25, addressId: null },
-
-  setLocation: (name, lat, lng, radius = 25, addressId = null) => {
-    set({ currentLocation: { name, lat, lng, radius, addressId } });
-  },
-
-  fetchTopRated: async (lat, lng, radius = 25) => {
-    set({ loading: true });
-    try {
-      const loc = get().currentLocation;
-      const targetLat = lat ?? loc?.lat ?? 23.1644;
-      const targetLng = lng ?? loc?.lng ?? 72.5855;
-      const res = await api.get("/restaurants/top-rated", {
-        params: { lat: targetLat, lng: targetLng, radius }
-      });
-      const list = (Array.isArray(res.data) ? res.data : []).map(r => {
-        if (r.distanceKm == null && r.latitude != null && r.longitude != null) {
-          r.distanceKm = calculateDistanceKm(targetLat, targetLng, r.latitude, r.longitude);
+      fetchAvailableDrivers: async (lat, lng, radius = 25) => {
+        try {
+          const loc = get().currentLocation;
+          const targetLat = lat ?? loc?.lat ?? 23.1644;
+          const targetLng = lng ?? loc?.lng ?? 72.5855;
+          const res = await api.get("/delivery/available-drivers", {
+            params: { lat: targetLat, lng: targetLng, radius }
+          });
+          const list = Array.isArray(res.data) ? res.data : [];
+          set({ availableDrivers: list });
+          return list;
+        } catch {
+          set({ availableDrivers: [] });
+          return [];
         }
-        return r;
-      }).filter(r => r.distanceKm != null && r.distanceKm <= radius);
+      },
 
-      set({ topRated: list, loading: false });
-      return list;
-    } catch {
-      set({ loading: false });
-      return [];
-    }
-  },
+      currentLocation: { name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, radius: 25, addressId: null },
 
-  // Fetch restaurants strictly within 25km radius
-  fetchNearby: async (lat, lng, radius = 25) => {
-    try {
-      const loc = get().currentLocation;
-      const targetLat = lat ?? loc?.lat ?? 23.1644;
-      const targetLng = lng ?? loc?.lng ?? 72.5855;
-      const res = await api.get("/restaurants/nearby", { params: { lat: targetLat, lng: targetLng, radius } });
-      const list = (Array.isArray(res.data) ? res.data : []).map(r => {
-        if (r.distanceKm == null && r.latitude != null && r.longitude != null) {
-          r.distanceKm = calculateDistanceKm(targetLat, targetLng, r.latitude, r.longitude);
+      setLocation: (name, lat, lng, radius = 25, addressId = null) => {
+        set({ currentLocation: { name, lat, lng, radius, addressId } });
+      },
+
+      fetchTopRated: async (lat, lng, radius = 25) => {
+        // Only show spinner if we don't have any cached restaurants yet (instant load!)
+        if (get().topRated.length === 0) {
+          set({ loading: true });
         }
-        return r;
-      }).filter(r => r.distanceKm != null && r.distanceKm <= radius);
+        try {
+          const loc = get().currentLocation;
+          const targetLat = lat ?? loc?.lat ?? 23.1644;
+          const targetLng = lng ?? loc?.lng ?? 72.5855;
+          const res = await api.get("/restaurants/top-rated", {
+            params: { lat: targetLat, lng: targetLng, radius }
+          });
+          const list = (Array.isArray(res.data) ? res.data : []).map(r => {
+            if (r.distanceKm == null && r.latitude != null && r.longitude != null) {
+              r.distanceKm = calculateDistanceKm(targetLat, targetLng, r.latitude, r.longitude);
+            }
+            return r;
+          }).filter(r => r.distanceKm != null && r.distanceKm <= radius);
 
-      set({ nearby: list });
-      return list;
-    } catch {
-      set({ nearby: [] });
-      return [];
-    }
-  },
+          set({ topRated: list, loading: false });
+          return list;
+        } catch {
+          set({ loading: false });
+          return get().topRated;
+        }
+      },
+
+      // Fetch restaurants strictly within 25km radius
+      fetchNearby: async (lat, lng, radius = 25) => {
+        try {
+          const loc = get().currentLocation;
+          const targetLat = lat ?? loc?.lat ?? 23.1644;
+          const targetLng = lng ?? loc?.lng ?? 72.5855;
+          const res = await api.get("/restaurants/nearby", { params: { lat: targetLat, lng: targetLng, radius } });
+          const list = (Array.isArray(res.data) ? res.data : []).map(r => {
+            if (r.distanceKm == null && r.latitude != null && r.longitude != null) {
+              r.distanceKm = calculateDistanceKm(targetLat, targetLng, r.latitude, r.longitude);
+            }
+            return r;
+          }).filter(r => r.distanceKm != null && r.distanceKm <= radius);
+
+          set({ nearby: list });
+          return list;
+        } catch {
+          return get().nearby;
+        }
+      },
 
   searchRestaurants: async (query, lat, lng, radius = 25) => {
     set({ loading: true });
@@ -147,4 +152,9 @@ export const useRestaurantStore = create((set, get) => ({
     set((s) => ({ reviews: [res.data, ...s.reviews] }));
     return res.data;
   },
-}));
+}),
+{
+  name: "mealmate-restaurants",
+  partialize: (state) => ({ topRated: state.topRated, nearby: state.nearby }),
+}
+));

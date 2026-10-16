@@ -27,11 +27,11 @@ spec:
                 name: mealmate-config
           resources:
             requests:
-              cpu: "150m"
-              memory: "256Mi"
+              cpu: "25m"
+              memory: "64Mi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "256Mi"
           readinessProbe:
             httpGet:
               path: /actuator/health

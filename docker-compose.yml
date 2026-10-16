@@ -1,3 +1,17 @@
+# ==============================================================================
+# MEALMATE DOCKER COMPOSE CONFIGURATION
+# ==============================================================================
+# NOTE: The backend microservices, database, and message brokers are deployed
+# and running on AWS (EC2 & RDS) at http://13.234.110.133.
+#
+# Running 'docker compose up' will ONLY start the frontend service locally.
+# The frontend connects directly to the live AWS backend:
+# http://13.234.110.133/api/v1
+#
+# If you ever want to run the full stack locally for offline development:
+# docker compose --profile backend-local up
+# ==============================================================================
+
 networks:
   foodrush-net:
     driver: bridge
@@ -12,8 +26,24 @@ volumes:
 
 services:
 
-  # ── Infrastructure ────────────────────────────────────────────────
+  # ── Frontend (Default Service) ────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE_URL=http://13.234.110.133/api/v1
+    networks:
+      - foodrush-net
+
+  # ── Infrastructure (Disabled locally by default - runs on AWS) ────
   mysql:
+    profiles:
+      - backend-local
     image: mysql:8.0
     container_name: mysql
     restart: unless-stopped
@@ -35,6 +65,8 @@ services:
       start_period: 30s
 
   redis:
+    profiles:
+      - backend-local
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
@@ -51,6 +83,8 @@ services:
       retries: 5
 
   zookeeper:
+    profiles:
+      - backend-local
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
     restart: unless-stopped
@@ -69,6 +103,8 @@ services:
       retries: 5
 
   kafka:
+    profiles:
+      - backend-local
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka
     restart: unless-stopped
@@ -98,6 +134,8 @@ services:
       start_period: 30s
 
   kafka-ui:
+    profiles:
+      - backend-local
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     restart: unless-stopped
@@ -112,8 +150,10 @@ services:
     networks:
       - foodrush-net
 
-  # ── Spring Cloud Core ─────────────────────────────────────────────
+  # ── Spring Cloud Core (Disabled locally by default) ───────────────
   config-server:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/config-server
       dockerfile: Dockerfile
@@ -131,6 +171,8 @@ services:
       start_period: 90s
 
   discovery-server:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/discovery-server
       dockerfile: Dockerfile
@@ -142,7 +184,6 @@ services:
     ports:
       - "8761:8761"
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -155,8 +196,10 @@ services:
       retries: 15
       start_period: 120s
 
-  # ── Application Services ──────────────────────────────────────────
+  # ── Application Services (Disabled locally by default) ────────────
   user-service:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/user-service
       dockerfile: Dockerfile
@@ -172,7 +215,6 @@ services:
       discovery-server:
         condition: service_healthy
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -191,6 +233,8 @@ services:
       - foodrush-net
 
   restaurant-service:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/restaurant-service
       dockerfile: Dockerfile
@@ -208,7 +252,6 @@ services:
       discovery-server:
         condition: service_healthy
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -225,6 +268,8 @@ services:
       - foodrush-net
 
   order-service:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/order-service
       dockerfile: Dockerfile
@@ -242,7 +287,6 @@ services:
       discovery-server:
         condition: service_healthy
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -259,6 +303,8 @@ services:
       - foodrush-net
 
   payment-service:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/payment-service
       dockerfile: Dockerfile
@@ -274,7 +320,6 @@ services:
       discovery-server:
         condition: service_healthy
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -289,6 +334,8 @@ services:
       - foodrush-net
 
   delivery-service:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/delivery-service
       dockerfile: Dockerfile
@@ -306,7 +353,6 @@ services:
       discovery-server:
         condition: service_healthy
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -323,6 +369,8 @@ services:
       - foodrush-net
 
   notification-service:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/notification-service
       dockerfile: Dockerfile
@@ -338,7 +386,6 @@ services:
       discovery-server:
         condition: service_healthy
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -355,6 +402,8 @@ services:
       - foodrush-net
 
   api-gateway:
+    profiles:
+      - backend-local
     build:
       context: ./Backened/api-gateway
       dockerfile: Dockerfile
@@ -368,7 +417,6 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Override config server URL for Docker
       SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_URL: http://discovery-server:8761/eureka/
@@ -382,35 +430,23 @@ services:
       retries: 15
       start_period: 120s
 
-  # ── Frontend ──────────────────────────────────────────────────────
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: frontend
-    restart: unless-stopped
-    depends_on:
-      api-gateway:
-        condition: service_healthy
-    ports:
-      - "3000:80"
-    networks:
-      - foodrush-net
-
-  # ── Observability ─────────────────────────────────────────────────
+  # ── Observability (Disabled locally by default) ────────────────────
   prometheus:
+    profiles:
+      - backend-local
     image: prom/prometheus:latest
     container_name: prometheus
     restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
-      # Map your local prometheus.yml to the container
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - foodrush-net
 
   grafana:
+    profiles:
+      - backend-local
     image: grafana/grafana:latest
     container_name: grafana
     restart: unless-stopped
@@ -427,5 +463,3 @@ services:
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
     networks:
       - foodrush-net
-
-  

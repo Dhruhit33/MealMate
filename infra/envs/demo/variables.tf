@@ -36,7 +36,13 @@ variable "enable_scheduler_lambda" {
 }
 
 variable "instance_type" {
-  description = "Free-tier EC2 instance type (t4g.micro or t3.micro/t3.small)"
+  description = "EC2 instance type (t3.medium recommended with 4GB RAM to run all microservices, Kafka, Redis & k3s stably)"
   type        = string
-  default     = "t4g.micro"
+  default     = "t3.medium"
+}
+
+variable "enable_cloudfront" {
+  description = "Enable CloudFront CDN distribution (provides HTTPS link for mobile devices)"
+  type        = bool
+  default     = true
 }

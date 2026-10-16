@@ -200,3 +200,60 @@ body {
     display: none !important;
   }
 }
+
+/* ── Mobile responsiveness enhancements ── */
+@media (max-width: 640px) {
+  /* Profile Page Mobile */
+  .profile-stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 20px !important;
+  }
+  .profile-stat-card {
+    padding: 12px 8px !important;
+    border-radius: 14px !important;
+    min-width: 0 !important;
+  }
+  .profile-stat-value {
+    font-size: 1.3rem !important;
+  }
+  .profile-stat-label {
+    font-size: 0.65rem !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .profile-details-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .profile-field-card {
+    padding: 12px 14px !important;
+    min-width: 0 !important;
+  }
+  .profile-field-value {
+    word-break: break-all !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* Home Page Mobile */
+  .home-stats {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 14px 12px !important;
+    margin-top: 20px !important;
+  }
+  .home-stat-item {
+    min-width: 0 !important;
+  }
+  .active-area-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+  .active-area-gps-btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}

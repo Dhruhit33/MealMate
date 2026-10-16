@@ -7,6 +7,8 @@ metadata:
     app: user-service
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: user-service
@@ -29,19 +31,19 @@ spec:
                 name: mealmate-secrets
           resources:
             requests:
-              cpu: "150m"
-              memory: "256Mi"
+              cpu: "25m"
+              memory: "64Mi"
             limits:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: "1000m"
+              memory: "400Mi"
           startupProbe:
             httpGet:
               path: /actuator/health
               port: 8081
             initialDelaySeconds: 20
             periodSeconds: 10
-            failureThreshold: 20
-            timeoutSeconds: 5
+            failureThreshold: 35
+            timeoutSeconds: 10
           readinessProbe:
             httpGet:
               path: /actuator/health

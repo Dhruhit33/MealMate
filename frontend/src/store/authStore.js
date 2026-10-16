@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import api from "../api/axios";
-import { useDriverStore } from "./driverStore";
 
 // Synchronously read cached credentials from localStorage so initial render never starts unauthenticated on browser refresh
 const getStoredAuth = () => {
@@ -99,11 +98,13 @@ export const useAuthStore = create(
           if (typeof window !== "undefined" && window.localStorage) {
             window.localStorage.removeItem("mealmate-auth");
             window.localStorage.removeItem("foodrush-auth");
+            window.localStorage.removeItem("mealmate-driver");
+            window.localStorage.removeItem("foodrush-driver");
+          }
+          if (typeof window !== "undefined" && typeof window.__mealmate_clear_driver === "function") {
+            window.__mealmate_clear_driver();
           }
         } catch (e) {}
-        if (useDriverStore.getState().clearProfile) {
-          useDriverStore.getState().clearProfile();
-        }
       },
     }),
     {

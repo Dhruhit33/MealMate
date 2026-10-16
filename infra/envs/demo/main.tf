@@ -13,12 +13,7 @@ terraform {
 }
 
 provider "aws" {
-  region                      = var.aws_region
-  access_key                  = "mock_access_key"
-  secret_key                  = "mock_secret_key"
-  skip_credentials_validation = true
-  skip_requesting_account_id  = true
-  skip_metadata_api_check     = true
+  region = var.aws_region
 
   default_tags {
     tags = {
@@ -65,18 +60,22 @@ resource "aws_s3_bucket" "frontend" {
 
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket                  = aws_s3_bucket.frontend.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
 }
 
-resource "aws_cloudfront_origin_access_control" "s3_oac" {
-  name                              = "${var.project_name}-s3-oac"
-  description                       = "OAC for MealMate Frontend S3 Bucket"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
+resource "aws_s3_bucket_website_configuration" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  index_document {
+    suffix = "index.html"
+  }
+
+  error_document {
+    key = "index.html"
+  }
 }
 
 resource "aws_s3_bucket_policy" "frontend_policy" {
@@ -86,21 +85,23 @@ resource "aws_s3_bucket_policy" "frontend_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "AllowCloudFrontServicePrincipal"
+        Sid       = "PublicReadGetObject"
         Effect    = "Allow"
-        Principal = {
-          Service = "cloudfront.amazonaws.com"
-        }
-        Action   = "s3:GetObject"
-        Resource = "${aws_s3_bucket.frontend.arn}/*"
-        Condition = {
-          StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.cdn.arn
-          }
-        }
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.frontend.arn}/*"
       }
     ]
   })
+}
+
+resource "aws_cloudfront_origin_access_control" "s3_oac" {
+  count                             = var.enable_cloudfront ? 1 : 0
+  name                              = "${var.project_name}-s3-oac"
+  description                       = "OAC for MealMate Frontend S3 Bucket"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
 # ─── Security Groups ──────────────────────────────────────────────────────────
@@ -176,6 +177,7 @@ resource "aws_security_group" "rds_sg" {
 # ─── CloudFront Distribution (Free HTTPS & CDN) ────────────────────────────────
 
 resource "aws_cloudfront_distribution" "cdn" {
+  count               = var.enable_cloudfront ? 1 : 0
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
@@ -185,12 +187,12 @@ resource "aws_cloudfront_distribution" "cdn" {
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "S3-${aws_s3_bucket.frontend.id}"
-    origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac[0].id
   }
 
   # Origin 2: EC2 Custom Origin (Traefik Ingress on port 80)
   origin {
-    domain_name = "api.${var.project_name}.local" # Dynamic origin placeholder mapped to EC2
+    domain_name = "ec2-13-234-110-133.ap-south-1.compute.amazonaws.com" # AWS EC2 Public DNS FQDN
     origin_id   = "EC2-Traefik-Ingress"
 
     custom_origin_config {
@@ -385,6 +387,16 @@ resource "aws_autoscaling_group" "mealmate_asg" {
 
 # ─── RDS MySQL (Free Tier db.t4g.micro, 1 AZ) ──────────────────────────────────
 
+resource "aws_db_subnet_group" "rds_subnet_group" {
+  name        = "${var.project_name}-rds-subnet-group"
+  description = "Database subnet group covering default subnets in 2 AZs for Free Tier RDS"
+  subnet_ids  = [aws_default_subnet.default_az1.id, aws_default_subnet.default_az2.id]
+
+  tags = {
+    Name = "${var.project_name}-rds-subnet-group"
+  }
+}
+
 resource "aws_db_instance" "mysql" {
   identifier             = "${var.project_name}-mysql-${var.environment}"
   engine                 = "mysql"
@@ -395,6 +407,7 @@ resource "aws_db_instance" "mysql" {
   storage_type           = "gp2"
   multi_az               = false # Single-AZ Free Tier
   publicly_accessible    = false
+  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
   db_name                = "mealmate_db"
   username               = var.db_username
   password               = var.db_password
@@ -464,12 +477,18 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
+  count      = var.enable_scheduler_lambda ? 1 : 0
+  role       = aws_iam_role.lambda_role[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
 resource "aws_lambda_function" "scheduler" {
   count            = var.enable_scheduler_lambda ? 1 : 0
   function_name    = "${var.project_name}-nightly-scheduler"
   role             = aws_iam_role.lambda_role[0].arn
   handler          = "index.handler"
-  runtime          = "nodejs18.x"
+  runtime          = "nodejs20.x"
   filename         = data.archive_file.lambda_dummy.output_path
   source_code_hash = data.archive_file.lambda_dummy.output_base64sha256
 

@@ -128,6 +128,7 @@ public class OrderService {
 
     // ─── Get Order by ID ───────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public OrderResponse getOrder(String orderId) {
         Order order = getOrderEntity(orderId);
         return OrderResponse.fromEntity(order);
@@ -135,6 +136,7 @@ public class OrderService {
 
     // ─── Get My Orders (user history) ──────────────────────────────────
 
+    @Transactional(readOnly = true)
     public List<OrderResponse> getMyOrders(String userId) {
         return orderRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
                 .map(OrderResponse::fromEntity)
@@ -143,6 +145,7 @@ public class OrderService {
 
     // ─── Get Orders for Restaurant (owner dashboard) ───────────────────
 
+    @Transactional(readOnly = true)
     public List<OrderResponse> getRestaurantOrders(String restaurantId) {
         return orderRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId).stream()
                 .map(OrderResponse::fromEntity)

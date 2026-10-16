@@ -27,42 +27,40 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
-            String path = exchange.getRequest().getURI().getPath();
-
-            // skip auth for public endpoints
-            if (!routeValidator.isSecured(path)) {
-                return chain.filter(exchange);
-            }
-
             HttpHeaders headers = exchange.getRequest().getHeaders();
 
-            if (!headers.containsKey(HttpHeaders.AUTHORIZATION)) {
+            // If token is present, validate it and attach user headers
+            if (headers.containsKey(HttpHeaders.AUTHORIZATION)) {
+                String authHeader = headers.getFirst(HttpHeaders.AUTHORIZATION);
+                if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                    String token = authHeader.substring(7);
+                    if (jwtUtil.isTokenValid(token)) {
+                        String userId = jwtUtil.extractUserId(token);
+                        String email  = jwtUtil.extractEmail(token);
+                        String role   = jwtUtil.extractRole(token);
+
+                        ServerWebExchange mutated = exchange.mutate()
+                                .request(r -> r
+                                        .header("X-User-Id", userId == null ? "" : userId)
+                                        .header("X-User-Email", email == null ? "" : email)
+                                        .header("X-User-Role", role == null ? "" : role))
+                                .build();
+
+                        return chain.filter(mutated);
+                    } else if (routeValidator.isSecured(exchange)) {
+                        return onError(exchange, "Invalid or expired JWT token", HttpStatus.UNAUTHORIZED);
+                    }
+                } else if (routeValidator.isSecured(exchange)) {
+                    return onError(exchange, "Invalid Authorization header format", HttpStatus.UNAUTHORIZED);
+                }
+            }
+
+            // If endpoint is secured and no authorization header was provided
+            if (routeValidator.isSecured(exchange)) {
                 return onError(exchange, "Missing Authorization header", HttpStatus.UNAUTHORIZED);
             }
 
-            String authHeader = headers.getFirst(HttpHeaders.AUTHORIZATION);
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                return onError(exchange, "Invalid Authorization header format", HttpStatus.UNAUTHORIZED);
-            }
-
-            String token = authHeader.substring(7);
-
-            if (!jwtUtil.isTokenValid(token)) {
-                return onError(exchange, "Invalid or expired JWT token", HttpStatus.UNAUTHORIZED);
-            }
-
-            String userId = jwtUtil.extractUserId(token);
-            String email  = jwtUtil.extractEmail(token);
-            String role   = jwtUtil.extractRole(token);
-
-            ServerWebExchange mutated = exchange.mutate()
-                    .request(r -> r
-                            .header("X-User-Id", userId == null ? "" : userId)
-                            .header("X-User-Email", email == null ? "" : email)
-                            .header("X-User-Role", role == null ? "" : role))
-                    .build();
-
-            return chain.filter(mutated);
+            return chain.filter(exchange);
         };
     }
 

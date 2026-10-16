@@ -11,7 +11,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: process.env.VITE_BACKEND_URL || "http://13.234.110.133",
         changeOrigin: true,
         ws: true,
         configure: (proxy) => {
@@ -20,7 +20,7 @@ export default defineConfig({
             if (err.code === "ECONNREFUSED") {
               if (res && res.writeHead && !res.headersSent) {
                 res.writeHead(503, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "Backend is not running on port 8080" }));
+                res.end(JSON.stringify({ error: "Backend is not running on AWS" }));
               }
               return;
             }

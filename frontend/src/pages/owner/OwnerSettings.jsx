@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Loader2, Save, MapPin, Navigation } from "lucide-react";
 import { useOwnerStore } from "../../store/ownerStore";
@@ -28,6 +29,7 @@ async function geocodeAddress(address) {
 }
 
 export default function OwnerSettings() {
+  const navigate = useNavigate();
   const { currentRestaurant, updateRestaurant, createRestaurant, fetchMyRestaurants } = useOwnerStore();
   const isNew = !currentRestaurant;
 
@@ -127,6 +129,7 @@ export default function OwnerSettings() {
         await createRestaurant(payload);
         await fetchMyRestaurants();
         toast.success("Restaurant created successfully! 🎉");
+        navigate("/owner");
       } else {
         await updateRestaurant(currentRestaurant.restaurantId, payload);
         toast.success("Settings saved!");

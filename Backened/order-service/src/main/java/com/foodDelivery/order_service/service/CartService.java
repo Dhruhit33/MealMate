@@ -115,7 +115,7 @@ public class CartService {
         String cartKey = CART_PREFIX + userId;
         Map<Object, Object> entries = redisTemplate.opsForHash().entries(cartKey);
 
-        if (entries.isEmpty()) {
+        if (entries == null || entries.isEmpty()) {
             return CartResponse.builder()
                     .userId(userId)
                     .item(Collections.emptyList())

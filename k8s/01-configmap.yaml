@@ -10,7 +10,7 @@ data:
   CONFIG_SERVER_URL: "http://config-server:8888"
   SPRING_CLOUD_CONFIG_URI: "http://config-server:8888"
   SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
-  SPRING_CLOUD_CONFIG_FAIL_FAST: "true"
+  SPRING_CLOUD_CONFIG_FAIL_FAST: "false"
   SPRING_CLOUD_CONFIG_RETRY_MAX_ATTEMPTS: "20"
   SPRING_CLOUD_CONFIG_RETRY_INITIAL_INTERVAL: "2000"
   EUREKA_URL: "http://discovery-server:8761/eureka/"
@@ -26,8 +26,8 @@ data:
   KAFKA_BOOTSTRAP: "kafka:9092"
   KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
 
-  # JVM Optimization (ensures fast startup and low memory footprint)
-  JAVA_TOOL_OPTIONS: "-Xms128m -Xmx256m -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+  # JVM Optimization (ensures fast startup and healthy memory footprint)
+  JAVA_TOOL_OPTIONS: "-Xms32m -Xmx128m -Xss256k -XX:+UseSerialGC -XX:+TieredCompilation -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -XX:ReservedCodeCacheSize=32m -XX:MaxMetaspaceSize=200m -Dspring.cloud.config.fail-fast=false -Dspring.cloud.config.uri=http://config-server:8888 -Dspring.config.import=optional:configserver:http://config-server:8888 -Deureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka/"
 
   # Spring Boot Kubernetes Health Probes
   MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"

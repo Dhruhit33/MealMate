@@ -1,12 +1,115 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: api-gateway
   config:
-    import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888}
+    import: optional:configserver:${CONFIG_SERVER_URL:http://config-server:8888}
   cloud:
     config:
       fail-fast: false
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      routes:
+        # User Service
+        - id: user-service-auth
+          uri: ${USER_SERVICE_URL:http://user-service:8081}
+          predicates:
+            - Path=/api/v1/auth/**
+
+        - id: user-service-users
+          uri: ${USER_SERVICE_URL:http://user-service:8081}
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - AuthenticationFilter
+
+        # Restaurant Service
+        - id: restaurant-service
+          uri: ${RESTAURANT_SERVICE_URL:http://restaurant-service:8082}
+          predicates:
+            - Path=/api/v1/restaurants/**
+          filters:
+            - AuthenticationFilter
+
+        # Order Service
+        - id: order-service-orders
+          uri: ${ORDER_SERVICE_URL:http://order-service:8083}
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            - AuthenticationFilter
+
+        - id: order-service-cart
+          uri: ${ORDER_SERVICE_URL:http://order-service:8083}
+          predicates:
+            - Path=/api/v1/cart/**
+          filters:
+            - AuthenticationFilter
+
+        # Payment Service
+        - id: payment-service-transactions
+          uri: ${PAYMENT_SERVICE_URL:http://payment-service:8085}
+          predicates:
+            - Path=/api/v1/transactions/**
+          filters:
+            - AuthenticationFilter
+
+        - id: payment-service-wallet
+          uri: ${PAYMENT_SERVICE_URL:http://payment-service:8085}
+          predicates:
+            - Path=/api/v1/wallet/**
+          filters:
+            - AuthenticationFilter
+
+        # Delivery Service
+        - id: delivery-service-delivery
+          uri: ${DELIVERY_SERVICE_URL:http://delivery-service:8084}
+          predicates:
+            - Path=/api/v1/delivery/**
+          filters:
+            - AuthenticationFilter
+
+        - id: delivery-service-driver
+          uri: ${DELIVERY_SERVICE_URL:http://delivery-service:8084}
+          predicates:
+            - Path=/api/v1/driver/**
+          filters:
+            - AuthenticationFilter
+
+        # WebSocket
+        - id: websocket-route
+          uri: ${DELIVERY_SERVICE_URL:http://delivery-service:8084}
+          predicates:
+            - Path=/api/ws/**
+          filters:
+            - RewritePath=/api/ws/(?<segment>.*), /ws/${segment}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://discovery-server:8761/eureka/}
+  instance:
+    prefer-ip-address: true
 
 jwt:
   secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,gateway,prometheus"
+  endpoint:
+    prometheus:
+      enabled: true
+    gateway:
+      enabled: true
+  health:
+    show-details: always

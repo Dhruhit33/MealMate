@@ -1,3 +1,124 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: mealmate
+  labels:
+    app: api-gateway
+data:
+  application.yaml: |
+    server:
+      port: 8080
+
+    spring:
+      application:
+        name: api-gateway
+      cloud:
+        config:
+          enabled: false
+        gateway:
+          discovery:
+            locator:
+              enabled: false
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+          routes:
+            # User Service
+            - id: user-service-auth
+              uri: http://user-service:8081
+              predicates:
+                - Path=/api/v1/auth/**
+
+            - id: user-service-users
+              uri: http://user-service:8081
+              predicates:
+                - Path=/api/v1/users/**
+              filters:
+                - AuthenticationFilter
+
+            # Restaurant Service
+            - id: restaurant-service
+              uri: http://restaurant-service:8082
+              predicates:
+                - Path=/api/v1/restaurants/**
+              filters:
+                - AuthenticationFilter
+
+            # Order Service
+            - id: order-service-orders
+              uri: http://order-service:8083
+              predicates:
+                - Path=/api/v1/orders/**
+              filters:
+                - AuthenticationFilter
+
+            - id: order-service-cart
+              uri: http://order-service:8083
+              predicates:
+                - Path=/api/v1/cart/**
+              filters:
+                - AuthenticationFilter
+
+            # Payment Service
+            - id: payment-service-transactions
+              uri: http://payment-service:8085
+              predicates:
+                - Path=/api/v1/transactions/**
+              filters:
+                - AuthenticationFilter
+
+            - id: payment-service-wallet
+              uri: http://payment-service:8085
+              predicates:
+                - Path=/api/v1/wallet/**
+              filters:
+                - AuthenticationFilter
+
+            # Delivery Service
+            - id: delivery-service-delivery
+              uri: http://delivery-service:8084
+              predicates:
+                - Path=/api/v1/delivery/**
+              filters:
+                - AuthenticationFilter
+
+            - id: delivery-service-driver
+              uri: http://delivery-service:8084
+              predicates:
+                - Path=/api/v1/driver/**
+              filters:
+                - AuthenticationFilter
+
+            # WebSocket
+            - id: websocket-route
+              uri: http://delivery-service:8084
+              predicates:
+                - Path=/api/ws/**
+              filters:
+                - RewritePath=/api/ws/(?<segment>.*), /ws/${segment}
+
+    eureka:
+      client:
+        enabled: false
+        register-with-eureka: false
+        fetch-registry: false
+
+    jwt:
+      secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: "health,info,gateway,prometheus"
+      endpoint:
+        prometheus:
+          enabled: true
+        gateway:
+          enabled: true
+      health:
+        show-details: always
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +128,8 @@ metadata:
     app: api-gateway
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: api-gateway
@@ -27,18 +150,49 @@ spec:
                 name: mealmate-config
             - secretRef:
                 name: mealmate-secrets
+          env:
+            - name: SPRING_CLOUD_CONFIG_ENABLED
+              value: "false"
+            - name: SPRING_CONFIG_IMPORT
+              value: "optional:file:/config/application.yaml"
+            - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+              value: "file:/config/"
+            - name: USER_SERVICE_URL
+              value: "http://user-service:8081"
+            - name: RESTAURANT_SERVICE_URL
+              value: "http://restaurant-service:8082"
+            - name: ORDER_SERVICE_URL
+              value: "http://order-service:8083"
+            - name: PAYMENT_SERVICE_URL
+              value: "http://payment-service:8085"
+            - name: DELIVERY_SERVICE_URL
+              value: "http://delivery-service:8084"
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification-service:8086"
+          volumeMounts:
+            - name: gateway-config
+              mountPath: /config
+              readOnly: true
           resources:
             requests:
-              cpu: "150m"
-              memory: "256Mi"
+              cpu: "25m"
+              memory: "64Mi"
             limits:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: "1000m"
+              memory: "400Mi"
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 35
           readinessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 60
+            initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
@@ -46,10 +200,14 @@ spec:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 90
+            initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 5
+      volumes:
+        - name: gateway-config
+          configMap:
+            name: api-gateway-config
 ---
 apiVersion: v1
 kind: Service

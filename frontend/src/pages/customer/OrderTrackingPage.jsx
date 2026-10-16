@@ -584,7 +584,7 @@ export default function OrderTrackingPage() {
     if (deliveryInfo?.driverLatitude && deliveryInfo?.driverLongitude) {
       const lat = parseFloat(deliveryInfo.driverLatitude);
       const lng = parseFloat(deliveryInfo.driverLongitude);
-      if (!isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 25) {
+      if (!isNaN(lat) && !isNaN(lng) && lat >= 8 && lat <= 38 && lng >= 68 && lng <= 98 && (lat !== 0 || lng !== 0)) {
         return [lat, lng];
       }
     }

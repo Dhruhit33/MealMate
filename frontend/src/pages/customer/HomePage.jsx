@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Star, Clock, TrendingUp, Flame, ChefHat, Zap, Sparkles, MapPin, Navigation, Compass, AlertCircle, RefreshCw, Bike, ShieldCheck } from "lucide-react";
 import { useRestaurantStore } from "../../store/restaurantStore";
 import { useAuthStore } from "../../store/authStore";
-import { useAddressStore, getAddressCoords } from "../../store/addressStore";
+import { useAddressStore, getAddressCoords, detectCurrentLocation } from "../../store/addressStore";
 
 const INK        = "#1C1208";
 const INK_SOFT   = "rgba(28,18,8,0.58)";
@@ -28,14 +28,6 @@ const CUISINES = [
   { label:"Italian",      emoji:"🍕" },
   { label:"Desserts",     emoji:"🍮" },
   { label:"Continental",  emoji:"🥗" },
-];
-
-const PRESET_LOCATIONS = [
-  { name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, tag: "Home" },
-  { name: "Balapir Char Rasta",    lat: 23.1645, lng: 72.5811, tag: "Adalaj" },
-  { name: "Infocity, Gandhinagar", lat: 23.1930, lng: 72.6300, tag: "Gandhinagar" },
-  { name: "Vaishnodevi Circle",    lat: 23.1340, lng: 72.5450, tag: "SG Highway" },
-  { name: "Chandkheda / Motera",  lat: 23.1000, lng: 72.5880, tag: "Ahmedabad" },
 ];
 
 const PROMPTS = [
@@ -67,31 +59,43 @@ export default function HomePage() {
   const [cuisine, setCuisine]     = useState("All");
   const [promptIdx, setPromptIdx] = useState(0);
 
-  const [activeLoc, setActiveLoc] = useState(PRESET_LOCATIONS[0]);
+  const [activeLoc, setActiveLoc] = useState(() => {
+    try {
+      const saved = localStorage.getItem("mealmate_active_loc");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return { name: "Current Location", lat: 23.1644, lng: 72.5855, tag: "Default" };
+  });
   const [gpsNotice, setGpsNotice] = useState("");
   const [locLoading, setLocLoading] = useState(false);
 
-  // Initialize location: if user has chosen/saved addresses, use active address; else fallback to Adalaj hub
+  // Parallel Data Loading: Fire restaurant & driver queries IMMEDIATELY at mount!
   useEffect(() => {
+    const currentLat = activeLoc.lat || 23.1644;
+    const currentLng = activeLoc.lng || 72.5855;
+
+    // Fire restaurant & driver fetches immediately in parallel!
+    fetchNearby(currentLat, currentLng, 25);
+    fetchTopRated(currentLat, currentLng, 25);
+    fetchAvailableDrivers(currentLat, currentLng, 25);
+
+    // Concurrently fetch addresses in background
     fetchAddresses().then((addrs) => {
       const savedId = localStorage.getItem("mealmate_selected_address_id");
       const chosen = (addrs || []).find(a => a.addressId === savedId) || (addrs && addrs.length > 0 ? addrs[0] : null);
-      if (chosen) {
+      if (chosen && chosen.addressId !== activeLoc.addressId) {
         const coords = getAddressCoords(chosen);
         const name = chosen.city ? `${chosen.label ? chosen.label + ": " : ""}${chosen.city}` : (chosen.street || chosen.label);
         const locObj = { name, lat: coords.lat, lng: coords.lng, tag: chosen.city || "Address", addressId: chosen.addressId };
         setActiveLoc(locObj);
         setLocation(name, coords.lat, coords.lng, 25, chosen.addressId);
-        fetchTopRated(coords.lat, coords.lng, 25);
-        fetchNearby(coords.lat, coords.lng, 25);
-        fetchAvailableDrivers(coords.lat, coords.lng, 25);
-      } else {
-        setLocation(activeLoc.name, activeLoc.lat, activeLoc.lng, 25, null);
-        fetchTopRated(activeLoc.lat, activeLoc.lng, 25);
-        fetchNearby(activeLoc.lat, activeLoc.lng, 25);
-        fetchAvailableDrivers(activeLoc.lat, activeLoc.lng, 25);
+        if (Math.abs(coords.lat - currentLat) > 0.01 || Math.abs(coords.lng - currentLng) > 0.01) {
+          fetchTopRated(coords.lat, coords.lng, 25);
+          fetchNearby(coords.lat, coords.lng, 25);
+          fetchAvailableDrivers(coords.lat, coords.lng, 25);
+        }
       }
-    });
+    }).catch(() => {});
   }, []);
 
   // Rotate catchy prompt every 3.2s
@@ -109,6 +113,9 @@ export default function HomePage() {
     setGpsNotice("");
     setLocLoading(true);
     selectAddress(addr);
+    try {
+      localStorage.setItem("mealmate_active_loc", JSON.stringify(locObj));
+    } catch (e) {}
     await Promise.all([
       fetchNearby(coords.lat, coords.lng, 25),
       fetchTopRated(coords.lat, coords.lng, 25),
@@ -117,60 +124,36 @@ export default function HomePage() {
     setLocLoading(false);
   }, [selectAddress, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
 
-  // Switch to selected preset location
-  const handleSelectLocation = useCallback(async (loc) => {
-    setActiveLoc(loc);
+  // Request user GPS with seamless IP Geolocation fallback for HTTP origins (http://13.234.110.133)
+  const handleUseGps = useCallback(async () => {
+    setLocLoading(true);
     setGpsNotice("");
-    setLocLoading(true);
-    setLocation(loc.name, loc.lat, loc.lng, 25, null);
-    await Promise.all([
-      fetchNearby(loc.lat, loc.lng, 25),
-      fetchTopRated(loc.lat, loc.lng, 25),
-    ]);
-    fetchAvailableDrivers(loc.lat, loc.lng, 25);
-    setLocLoading(false);
-  }, [setLocation, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
+    try {
+      const loc = await detectCurrentLocation();
+      const lat = loc.lat;
+      const lng = loc.lng;
+      const label = loc.city ? `My Location (${loc.city})` : `My GPS (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
+      const locObj = { name: label, lat, lng, tag: loc.source === "gps" ? "GPS" : "Live Location" };
 
-  // Request browser GPS (max 25 km radius)
-  const handleUseGps = useCallback(() => {
-    if (!navigator.geolocation) {
-      setGpsNotice("Geolocation is not supported by your browser. Using Annapurnadham, Adalaj.");
-      return;
+      setActiveLoc(locObj);
+      setLocation(label, lat, lng, 25, null);
+      try {
+        localStorage.setItem("mealmate_active_loc", JSON.stringify(locObj));
+      } catch (e) {}
+
+      const results = await fetchNearby(lat, lng, 25);
+      fetchTopRated(lat, lng, 25);
+      fetchAvailableDrivers(lat, lng, 25);
+
+      if (!results || results.length === 0) {
+        setGpsNotice(`No registered restaurants currently found within 25 km of your location (${label}). You can switch to one of your saved addresses below.`);
+      }
+    } catch (err) {
+      console.error("GPS detection error:", err);
+      setGpsNotice("Unable to detect location. Please select an address or add one in My Addresses.");
+    } finally {
+      setLocLoading(false);
     }
-    setLocLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const results = await fetchNearby(lat, lng, 25);
-        fetchTopRated(lat, lng, 25);
-        fetchAvailableDrivers(lat, lng, 25);
-        if (results && results.length > 0) {
-          const locObj = { name: `My GPS (${lat.toFixed(3)}, ${lng.toFixed(3)})`, lat, lng, tag: "GPS" };
-          setActiveLoc(locObj);
-          setLocation(locObj.name, lat, lng, 25, null);
-          setGpsNotice("");
-        } else {
-          // If browser ISP is outside Gujarat delivery area, gently notify and fallback to Adalaj
-          setGpsNotice(`Your detected GPS (${lat.toFixed(2)}, ${lng.toFixed(2)}) has no registered restaurants within 25 km. Displaying restaurants near Annapurnadham, Adalaj.`);
-          await Promise.all([
-            fetchNearby(23.1644, 72.5855, 25),
-            fetchTopRated(23.1644, 72.5855, 25),
-          ]);
-          setActiveLoc(PRESET_LOCATIONS[0]);
-          setLocation(PRESET_LOCATIONS[0].name, 23.1644, 72.5855, 25, null);
-        }
-        setLocLoading(false);
-      },
-      (err) => {
-        setLocLoading(false);
-        setGpsNotice("Could not access GPS. Displaying restaurants near Annapurnadham, Adalaj.");
-        fetchNearby(23.1644, 72.5855, 25);
-        fetchTopRated(23.1644, 72.5855, 25);
-        fetchAvailableDrivers(23.1644, 72.5855, 25);
-      },
-      { timeout: 7000 }
-    );
   }, [setLocation, fetchNearby, fetchTopRated, fetchAvailableDrivers]);
 
   // Strictly enforce 25km radius: ONLY show restaurants within 25 km of user's active location
@@ -266,7 +249,7 @@ export default function HomePage() {
             { num:"4.8", suffix:"★", label:"Avg rating",   icon:"🌟" },
             { num:"100%", suffix:"",  label:"Fresh food",  icon:"🌿" },
           ].map((s,i)=>(
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, animation:`fade-up 0.5s ease-out ${0.2+i*0.1}s both` }}>
+            <div key={i} className="home-stat-item" style={{ display:"flex", alignItems:"center", gap:10, animation:`fade-up 0.5s ease-out ${0.2+i*0.1}s both` }}>
               <span style={{ fontSize:"1.2rem" }}>{s.icon}</span>
               <div>
                 <div style={{
@@ -296,7 +279,7 @@ export default function HomePage() {
           flexDirection: "column",
           gap: 14
         }}>
-          <div style={{
+          <div className="active-area-header" style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -334,6 +317,7 @@ export default function HomePage() {
             </div>
 
             <button
+              className="active-area-gps-btn"
               onClick={handleUseGps}
               disabled={locLoading}
               style={{
@@ -359,84 +343,62 @@ export default function HomePage() {
             </button>
           </div>
 
-          {/* Quick preset chips & User Saved Addresses */}
+          {/* User Saved Delivery Addresses ONLY */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", paddingTop: 10, borderTop: `1px solid ${INK_HAIR}` }}>
-            <span style={{ fontSize: "0.72rem", color: INK_MUTED, fontWeight: 600 }}>Quick areas:</span>
+            <span style={{ fontSize: "0.72rem", color: INK_MUTED, fontWeight: 600 }}>Your addresses:</span>
 
-            {/* User's saved addresses (Ahmedabad, Surat, Rajkot, etc.) */}
-            {addresses.map((addr) => {
-              const isSelected = activeLoc.addressId === addr.addressId || (selectedAddressId === addr.addressId && (!activeLoc.addressId || activeLoc.addressId === addr.addressId));
-              const title = addr.city || addr.street || addr.label || "Saved Address";
-              return (
-                <button
-                  key={addr.addressId}
-                  onClick={() => handleSelectUserAddress(addr)}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 999,
-                    border: `1.5px solid ${isSelected ? TC : INK_HAIR}`,
-                    background: isSelected ? `${TC}14` : "#FFF",
-                    color: isSelected ? TC_DEEP : INK_SOFT,
-                    fontSize: "0.78rem",
-                    fontWeight: isSelected ? 700 : 500,
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    boxShadow: isSelected ? `0 2px 8px ${TC}20` : "none"
-                  }}
-                >
-                  <MapPin size={11} color={isSelected ? TC : INK_MUTED} />
-                  <span>{addr.label ? `${addr.label}: ` : ""}{title}</span>
-                </button>
-              );
-            })}
-
-            {/* Preset locations */}
-            {PRESET_LOCATIONS.map((loc) => {
-              const isSelected = !activeLoc.addressId && activeLoc.name === loc.name;
-              return (
-                <button
-                  key={loc.name}
-                  onClick={() => handleSelectLocation(loc)}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 999,
-                    border: `1.5px solid ${isSelected ? TC : INK_HAIR}`,
-                    background: isSelected ? `${TC}14` : "#FFF",
-                    color: isSelected ? TC_DEEP : INK_SOFT,
-                    fontSize: "0.78rem",
-                    fontWeight: isSelected ? 700 : 500,
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  <MapPin size={11} color={isSelected ? TC : INK_MUTED} />
-                  <span>{loc.name}</span>
-                </button>
-              );
-            })}
+            {/* User's added/saved addresses */}
+            {addresses.length > 0 ? (
+              addresses.map((addr) => {
+                const isSelected = activeLoc.addressId === addr.addressId || (selectedAddressId === addr.addressId && (!activeLoc.addressId || activeLoc.addressId === addr.addressId));
+                const title = addr.city || addr.street || addr.label || "Saved Address";
+                return (
+                  <button
+                    key={addr.addressId}
+                    onClick={() => handleSelectUserAddress(addr)}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 999,
+                      border: `1.5px solid ${isSelected ? TC : INK_HAIR}`,
+                      background: isSelected ? `${TC}14` : "#FFF",
+                      color: isSelected ? TC_DEEP : INK_SOFT,
+                      fontSize: "0.78rem",
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      boxShadow: isSelected ? `0 2px 8px ${TC}20` : "none"
+                    }}
+                  >
+                    <MapPin size={11} color={isSelected ? TC : INK_MUTED} />
+                    <span>{addr.label ? `${addr.label}: ` : ""}{title}</span>
+                  </button>
+                );
+              })
+            ) : (
+              <span style={{ fontSize: "0.76rem", color: INK_MUTED, fontStyle: "italic" }}>
+                No saved addresses yet
+              </span>
+            )}
 
             {/* Manage addresses link */}
             <button
               onClick={() => navigate("/addresses")}
               style={{
-                padding: "6px 12px",
+                padding: "6px 14px",
                 borderRadius: 999,
-                border: `1px dashed ${INK_HAIR}`,
-                background: "transparent",
+                border: `1.5px dashed ${TC}60`,
+                background: `${TC}08`,
                 color: TC,
                 fontSize: "0.76rem",
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: "pointer",
                 transition: "all 0.15s",
                 display: "flex",
                 alignItems: "center",
-                gap: 4
+                gap: 5
               }}
             >
               <span>+ Manage Addresses</span>
@@ -533,7 +495,7 @@ export default function HomePage() {
         </div>
 
         {loading&&filtered.length===0 ? <GridSkeleton /> :
-         filtered.length===0           ? <EmptyState cuisine={cuisine} locationName={activeLoc.name} onSwitchLocation={handleSelectLocation} /> : (
+         filtered.length===0           ? <EmptyState cuisine={cuisine} locationName={activeLoc.name} onManageAddresses={() => navigate("/addresses")} onUseGps={handleUseGps} /> : (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:24 }}>
             {filtered.map((r,i)=>(
               <RestaurantCard key={r.restaurantId} restaurant={r} index={i}
@@ -964,7 +926,7 @@ function GridSkeleton() {
   );
 }
 
-function EmptyState({ cuisine, locationName, onSwitchLocation }) {
+function EmptyState({ cuisine, locationName, onManageAddresses, onUseGps }) {
   return (
     <div style={{ padding:"64px 24px", textAlign:"center",
       background:CARD, borderRadius:20, border:`1.5px dashed ${INK_HAIR}` }}>
@@ -972,32 +934,33 @@ function EmptyState({ cuisine, locationName, onSwitchLocation }) {
       <h3 style={{ fontSize:"1.2rem", fontWeight:700, marginBottom:8, color:INK, fontFamily:"var(--font-display)" }}>
         No {cuisine==="All"?"restaurants":`${cuisine} spots`} within 25 km of {locationName}
       </h3>
-      <p style={{ fontSize:"0.9rem", color:INK_SOFT, maxWidth:440, margin:"0 auto 20px", lineHeight:1.5 }}>
-        MealMate delivers strictly within a <strong>25 km radius</strong> of our registered kitchens. You can switch to one of our active restaurant hubs:
+      <p style={{ fontSize:"0.9rem", color:INK_SOFT, maxWidth:440, margin:"0 auto 16px", lineHeight:1.5 }}>
+        MealMate delivers strictly within a <strong>25 km radius</strong> of registered kitchens. Try selecting another saved address or searching in a different area.
       </p>
-      {onSwitchLocation && (
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap" }}>
+      <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        {onUseGps && (
           <button
-            onClick={() => onSwitchLocation({ name: "Annapurnadham, Adalaj", lat: 23.1644, lng: 72.5855, tag: "Adalaj" })}
+            onClick={onUseGps}
             style={{
-              background: TC, color: "#fff", border: "none", borderRadius: 999,
-              padding: "10px 22px", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer",
-              boxShadow: "0 4px 14px rgba(192,64,30,0.25)"
+              padding: "8px 18px", borderRadius: 999, border: `1px solid ${TC}`,
+              background: TC, color: "#FFF5E6", fontSize: "0.82rem", fontWeight: 600, cursor: "pointer"
             }}
           >
-            📍 Adalaj Hub (Mc Donals · 2.8 km)
+            Use My GPS
           </button>
+        )}
+        {onManageAddresses && (
           <button
-            onClick={() => onSwitchLocation({ name: "HOME: Majura Taluka", lat: 21.11697090, lng: 72.78540090, tag: "Surat" })}
+            onClick={onManageAddresses}
             style={{
-              background: CARD, color: TC_DEEP, border: `1.5px solid ${TC}40`, borderRadius: 999,
-              padding: "10px 22px", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer"
+              padding: "8px 18px", borderRadius: 999, border: `1px solid ${INK_HAIR}`,
+              background: "#FFF", color: INK, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer"
             }}
           >
-            📍 Surat Hub (The leela · 7.8 km)
+            Manage Addresses
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

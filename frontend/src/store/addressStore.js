@@ -29,6 +29,41 @@ export const getAddressCoords = (addr) => {
   return { lat: 23.1644, lng: 72.5855 }; // Default Adalaj
 };
 
+// Real Location Detector: Strictly queries HTML5 GPS from device hardware (never falls back to random ISP IP)
+export async function detectCurrentLocation() {
+  if (typeof navigator !== "undefined" && navigator.geolocation) {
+    const getPos = (highAcc, timeoutMs) =>
+      new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: timeoutMs,
+          maximumAge: 0,
+          enableHighAccuracy: highAcc,
+        });
+      });
+
+    try {
+      let pos;
+      try {
+        pos = await getPos(true, 15000);
+      } catch (err) {
+        if (err?.code === 1) throw err;
+        pos = await getPos(false, 10000);
+      }
+      if (pos && pos.coords) {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!isNaN(lat) && !isNaN(lng)) {
+          return { lat, lng, source: "gps", city: null };
+        }
+      }
+    } catch (e) {
+      console.warn("HTML5 Geolocation unavailable:", e?.message);
+    }
+  }
+
+  return null;
+}
+
 const savedAddressId = typeof window !== "undefined" ? localStorage.getItem("mealmate_selected_address_id") : null;
 
 export const useAddressStore = create((set, get) => ({
