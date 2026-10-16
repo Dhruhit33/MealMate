@@ -42,7 +42,7 @@ variable "instance_type" {
 }
 
 variable "enable_cloudfront" {
-  description = "Enable CloudFront CDN distribution (provides HTTPS link for mobile devices)"
+  description = "Enable CloudFront CDN distribution (provides HTTPS link for mobile devices; requires account verification on new AWS accounts)"
   type        = bool
-  default     = true
+  default     = false
 }

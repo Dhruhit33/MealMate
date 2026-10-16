@@ -1,0 +1,146 @@
+name: MealMate Deployment Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Microservice or Component to Roll Back'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - api-gateway
+          - config-server
+          - delivery-service
+          - discovery-server
+          - notification-service
+          - order-service
+          - payment-service
+          - restaurant-service
+          - user-service
+          - frontend
+      revision:
+        description: 'Target Revision (Leave 0 to undo to the immediate previous revision)'
+        required: false
+        default: '0'
+        type: string
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  ASG_NAME: 'mealmate-asg'
+  K8S_NAMESPACE: 'mealmate'
+
+jobs:
+  rollback:
+    name: Execute Rollback (${{ github.event.inputs.service }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Rollback for Frontend (Invalidate CloudFront Cache)
+      - name: Frontend Rollback Trigger
+        if: github.event.inputs.service == 'frontend' || github.event.inputs.service == 'all'
+        env:
+          CF_DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          echo "==> Initiating frontend cache purge..."
+          if [ -n "$CF_DIST_ID" ]; then
+            aws cloudfront create-invalidation --distribution-id "$CF_DIST_ID" --paths "/*"
+            echo "✅ CloudFront cache invalidated for frontend."
+          else
+            echo "ℹ️ No CloudFront distribution specified; S3 website reflects latest deployed files."
+          fi
+
+      # Rollback for Kubernetes Microservices
+      - name: Kubernetes Deployment Rollback via AWS SSM
+        if: github.event.inputs.service != 'frontend'
+        run: |
+          echo "==> Locating EC2 instance in Auto Scaling Group: ${{ env.ASG_NAME }}..."
+          INSTANCE_ID=$(aws ec2 describe-auto-scaling-groups \
+            --auto-scaling-group-names "${{ env.ASG_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "AutoScalingGroups[0].Instances[0].InstanceId" \
+            --output text)
+
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" == "None" ]; then
+            echo "❌ Error: No running instance found in Auto Scaling Group ${{ env.ASG_NAME }}!"
+            exit 1
+          fi
+
+          echo "✅ Found EC2 instance: $INSTANCE_ID"
+
+          TARGET_SERVICE="${{ github.event.inputs.service }}"
+          REVISION="${{ github.event.inputs.revision }}"
+          
+          if [ "$TARGET_SERVICE" == "all" ]; then
+            SERVICES="api-gateway config-server delivery-service discovery-server notification-service order-service payment-service restaurant-service user-service"
+          else
+            SERVICES="$TARGET_SERVICE"
+          fi
+
+          ROLLBACK_CMDS="echo '==> Executing Rollback on Kubernetes (namespace: ${{ env.K8S_NAMESPACE }})...'"
+
+          for svc in $SERVICES; do
+            if [ "$REVISION" != "0" ] && [ -n "$REVISION" ]; then
+              ROLLBACK_CMDS="${ROLLBACK_CMDS}; echo 'Rolling back ${svc} to revision ${REVISION}...'; k3s kubectl rollout undo deployment/${svc} --to-revision=${REVISION} -n ${{ env.K8S_NAMESPACE }}"
+            else
+              ROLLBACK_CMDS="${ROLLBACK_CMDS}; echo 'Rolling back ${svc} to previous revision...'; k3s kubectl rollout undo deployment/${svc} -n ${{ env.K8S_NAMESPACE }}"
+            fi
+            ROLLBACK_CMDS="${ROLLBACK_CMDS}; k3s kubectl rollout status deployment/${svc} -n ${{ env.K8S_NAMESPACE }} --timeout=120s"
+          done
+
+          ROLLBACK_CMDS="${ROLLBACK_CMDS}; echo '==> Current Pod Status:'; k3s kubectl get pods -n ${{ env.K8S_NAMESPACE }}"
+
+          echo "==> Dispatching rollback command via AWS SSM..."
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"$ROLLBACK_CMDS\"]" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "==> SSM Command sent: $COMMAND_ID. Waiting for execution..."
+
+          STATUS="Pending"
+          while [ "$STATUS" == "Pending" ] || [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Delayed" ]; do
+            sleep 8
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "${{ env.AWS_REGION }}" \
+              --query "Status" \
+              --output text 2>/dev/null || echo "Pending")
+            echo "Current status: $STATUS"
+          done
+
+          OUTPUT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "StandardOutputContent" \
+            --output text)
+
+          echo "=========================================="
+          echo "      Rollback Execution Summary          "
+          echo "=========================================="
+          echo "$OUTPUT"
+
+          if [ "$STATUS" != "Success" ]; then
+            ERROR_OUTPUT=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "${{ env.AWS_REGION }}" \
+              --query "StandardErrorContent" \
+              --output text)
+            echo "❌ Rollback failed: $ERROR_OUTPUT"
+            exit 1
+          fi
+
+          echo "🎉 Rollback executed and verified successfully!"

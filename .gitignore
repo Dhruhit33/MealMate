@@ -34,3 +34,10 @@ tfplan
 
 # ─── Local Tool Binaries ────────────────────
 bin/
+
+# ─── Temporary Archives & Scratch Files ─────
+*.tar.gz
+scratch_*.txt
+output.txt
+ssm_out.txt
+
