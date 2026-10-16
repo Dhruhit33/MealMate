@@ -260,11 +260,21 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           echo "==> Locating EC2 instance in Auto Scaling Group: ${{ env.ASG_NAME }}..."
-          INSTANCE_ID=$(aws ec2 describe-auto-scaling-groups \
+          INSTANCE_ID=$(aws autoscaling describe-auto-scaling-groups \
             --auto-scaling-group-names "${{ env.ASG_NAME }}" \
             --region "${{ env.AWS_REGION }}" \
-            --query "AutoScalingGroups[0].Instances[0].InstanceId" \
-            --output text)
+            --query "AutoScalingGroups[0].Instances[?LifecycleState=='InService'].InstanceId | [0]" \
+            --output text 2>/dev/null || echo "")
+
+          # Resilient fallback: lookup running instance by ASG tag via EC2
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" == "None" ]; then
+            echo "ℹ️ ASG query returned empty, querying by ASG tag..."
+            INSTANCE_ID=$(aws ec2 describe-instances \
+              --filters "Name=tag:aws:autoscaling:groupName,Values=${{ env.ASG_NAME }}" "Name=instance-state-name,Values=running" \
+              --region "${{ env.AWS_REGION }}" \
+              --query "Reservations[0].Instances[0].InstanceId" \
+              --output text)
+          fi
 
           if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" == "None" ]; then
             echo "❌ Error: No running instance found in Auto Scaling Group ${{ env.ASG_NAME }}!"
@@ -273,28 +283,52 @@ jobs:
 
           echo "✅ Found EC2 instance: $INSTANCE_ID"
 
-          # Prepare rolling update script for all microservices
-          SERVICES="api-gateway config-server delivery-service discovery-server notification-service order-service payment-service restaurant-service user-service"
-          
-          UPDATE_CMDS="echo '==> Updating Kubernetes Deployments in namespace ${{ env.K8S_NAMESPACE }}...'"
-          
-          for svc in $SERVICES; do
-            IMAGE_URI="${ECR_REGISTRY}/mealmate-${svc}:${IMAGE_TAG}"
-            UPDATE_CMDS="${UPDATE_CMDS}; k3s kubectl set image deployment/${svc} ${svc}=${IMAGE_URI} -n ${{ env.K8S_NAMESPACE }} || true"
-          done
+          # Retrieve temporary ECR authentication token to allow k3s to pull private ECR images
+          ECR_PASSWORD=$(aws ecr get-login-password --region "${{ env.AWS_REGION }}")
 
-          # Add rollout verification and auto-rollback commands
-          for svc in $SERVICES; do
-            UPDATE_CMDS="${UPDATE_CMDS}; echo 'Verifying rollout for ${svc}...'; if ! k3s kubectl rollout status deployment/${svc} -n ${{ env.K8S_NAMESPACE }} --timeout=120s; then echo '❌ Rollout failed for ${svc}! Rolling back...'; k3s kubectl rollout undo deployment/${svc} -n ${{ env.K8S_NAMESPACE }}; exit 1; fi"
-          done
+          # Create a self-contained shell script for zero-downtime rolling update
+          cat << 'SCRIPT_EOF' > deploy_k8s.sh
+set -e
+echo "==> Ensuring ECR pull secret in namespace ${{ env.K8S_NAMESPACE }}..."
+k3s kubectl create secret docker-registry ecr-secret \
+  --docker-server="${{ steps.login-ecr.outputs.registry }}" \
+  --docker-username="AWS" \
+  --docker-password="${ECR_PASSWORD}" \
+  --namespace="${{ env.K8S_NAMESPACE }}" \
+  --dry-run=client -o yaml | k3s kubectl apply -f -
 
-          UPDATE_CMDS="${UPDATE_CMDS}; echo '==> Checking all pod statuses:'; k3s kubectl get pods -n ${{ env.K8S_NAMESPACE }}"
+k3s kubectl patch serviceaccount default -n "${{ env.K8S_NAMESPACE }}" -p '{"imagePullSecrets": [{"name": "ecr-secret"}]}' 2>/dev/null || true
+
+SERVICES="api-gateway config-server delivery-service discovery-server notification-service order-service payment-service restaurant-service user-service"
+
+echo "==> Starting zero-downtime rolling update for microservices..."
+for svc in $SERVICES; do
+  IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/mealmate-${svc}:${{ github.sha }}"
+  k3s kubectl patch deployment "${svc}" -n "${{ env.K8S_NAMESPACE }}" -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ecr-secret"}]}}}}' 2>/dev/null || true
+  k3s kubectl set image deployment/"${svc}" "${svc}=${IMAGE_URI}" -n "${{ env.K8S_NAMESPACE }}" || true
+done
+
+echo "==> Verifying rolling update statuses..."
+for svc in $SERVICES; do
+  echo "Checking rollout status for ${svc}..."
+  if ! k3s kubectl rollout status deployment/"${svc}" -n "${{ env.K8S_NAMESPACE }}" --timeout=120s; then
+    echo "❌ Rollout check failed for ${svc}! Rolling back to previous healthy state..."
+    k3s kubectl rollout undo deployment/"${svc}" -n "${{ env.K8S_NAMESPACE }}"
+    exit 1
+  fi
+done
+
+echo "==> Final pod statuses in namespace ${{ env.K8S_NAMESPACE }}:"
+k3s kubectl get pods -n "${{ env.K8S_NAMESPACE }}"
+SCRIPT_EOF
+
+          B64_SCRIPT=$(base64 -w 0 deploy_k8s.sh)
 
           echo "==> Dispatching deployment command via AWS SSM..."
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"$UPDATE_CMDS\"]" \
+            --parameters "commands=[\"echo $B64_SCRIPT | base64 -d | bash\"]" \
             --region "${{ env.AWS_REGION }}" \
             --query "Command.CommandId" \
             --output text)
