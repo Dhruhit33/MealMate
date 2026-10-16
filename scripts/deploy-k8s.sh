@@ -7,12 +7,12 @@ IMAGE_TAG="__IMAGE_TAG__"
 K8S_NAMESPACE="__K8S_NAMESPACE__"
 
 echo "==> Ensuring ECR pull secret in namespace ${K8S_NAMESPACE}..."
+k3s kubectl delete secret ecr-secret -n "${K8S_NAMESPACE}" --ignore-not-found=true
 k3s kubectl create secret docker-registry ecr-secret \
   --docker-server="${ECR_REGISTRY}" \
   --docker-username="AWS" \
   --docker-password="${ECR_PASSWORD}" \
-  --namespace="${K8S_NAMESPACE}" \
-  --dry-run=client -o yaml | k3s kubectl apply -f -
+  --namespace="${K8S_NAMESPACE}"
 
 k3s kubectl patch serviceaccount default -n "${K8S_NAMESPACE}" -p '{"imagePullSecrets": [{"name": "ecr-secret"}]}' 2>/dev/null || true
 
