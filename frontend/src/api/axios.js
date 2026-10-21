@@ -1,13 +1,16 @@
 import axios from "axios";
 
 const getBaseURL = () => {
-  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
-  if (typeof window !== "undefined") {
-    if (window.location.hostname === "13.234.110.133" || window.location.port === "80") {
-      return "/api/v1";
-    }
+  if (import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.startsWith("/")) {
+    return import.meta.env.VITE_API_BASE_URL;
   }
-  return "http://13.234.110.133/api/v1";
+  if (typeof window !== "undefined") {
+    // When running in the browser, always use relative path /api/v1
+    // This automatically adopts the current domain/IP, protocol (http/https), and port,
+    // avoiding mixed-content security blocks in Chrome, Safari, and Indian mobile networks.
+    return "/api/v1";
+  }
+  return import.meta.env.VITE_API_BASE_URL || "http://13.234.110.133/api/v1";
 };
 
 const api = axios.create({

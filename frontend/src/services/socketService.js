@@ -33,7 +33,8 @@ class SocketService {
           try {
             return new SockJS(`/api/ws`);
           } catch {
-            return new WebSocket(`ws://${window.location.host}/api/ws`);
+            const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+            return new WebSocket(`${proto}//${window.location.host}/api/ws`);
           }
         },
         connectHeaders: { Authorization: `Bearer ${token}` },
