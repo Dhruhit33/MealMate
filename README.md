@@ -30,7 +30,6 @@ MealMate is a fully containerized, cloud-ready food delivery platform built with
 
 | Feature | Description | Technology |
 |---|---|---|
-| 🤖 **AI Chat Assistant** | Interactive conversational assistant capable of placing orders, querying wallet, and finding restaurants via function calling | Spring AI + Google Gemini |
 | 📍 **Sub-Second Driver Tracking** | GPS coordinates fanned out to consumers in real-time, bypassing the DB entirely | WebSockets + Redis Geospatial |
 | 👥 **Role-Based Access Control** | Dedicated workflows and dashboards for Customers, Drivers, and Restaurant Owners | Spring Security + JWT |
 | 📊 **Full Observability** | JVM metrics, CPU, heap, HTTP latency per service — all live in Grafana | Prometheus + Grafana |
